@@ -126,10 +126,7 @@ def leer_termografo(ruta: str, orden_beta: str) -> pd.DataFrame:
     ].copy()
 
     if df_filtrado.empty:
-        raise ValueError(
-            f"No se encontraron registros para la orden '{orden_beta}' "
-            f"en el archivo de termógrafo."
-        )
+        return pd.DataFrame(columns=list(COLUMNAS_TERMOGRAFO.values()))
 
     return df_filtrado.reset_index(drop=True)
 

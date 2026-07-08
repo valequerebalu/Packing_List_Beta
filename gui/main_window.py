@@ -585,16 +585,35 @@ class MainWindow:
         if not self.ruta_termografo.get():
             messagebox.showwarning("Faltante", "Selecciona el archivo de Termógrafo.")
             return
-        if not self.orden_beta_var.get().strip():
+        orden = self.orden_beta_var.get().strip()
+        if not orden:
             messagebox.showwarning("Faltante", "Ingresa el número de orden Beta.")
             self.entry_orden.focus()
             return
+
+        try:
+            self.df_termografo = leer_termografo(self.ruta_termografo.get(), orden)
+        except ValueError as e:
+            messagebox.showerror("Error", str(e))
+            return
+
+        if self.df_termografo.empty:
+            continuar = messagebox.askyesno(
+                "Termógrafo sin registros",
+                f"No se encontraron los códigos de termógrafo "
+                f"para la orden '{orden}'.\n\n"
+                f"¿Deseas continuar de todas formas?"
+            )
+            if not continuar:
+                self._log("Proceso cancelado — termógrafo sin códigos", "warn")
+                return
+            self._log("Termógrafo sin códigos — se generará sin la última columna", "warn")
 
         self.btn_generar.configure(state="disabled", text="Generando...")
         self._log(
             f"Iniciando → Cliente: {self.cliente_var.get()} | "
             f"Cultivo: {self.cultivo_var.get()} | "
-            f"Orden: {self.orden_beta_var.get()}",
+            f"Orden: {orden}",
             "info",
         )
         threading.Thread(target=self._proceso_generacion, daemon=True).start()
@@ -608,9 +627,10 @@ class MainWindow:
                 self.df_packing = leer_packing_beta(self.ruta_packing.get())
             self._log(f"Packing: {len(self.df_packing)} filas totales", "ok")
 
-            self._log(f"Leyendo termógrafo — filtrando orden {orden}...", "info")
-            self.df_termografo = leer_termografo(self.ruta_termografo.get(), orden)
-            self._log(f"Termógrafo: {len(self.df_termografo)} registros", "ok")
+            self._log(
+                f"Termógrafo: {len(self.df_termografo)} registros",
+                "ok" if not self.df_termografo.empty else "warn",
+            )
 
             resumen = obtener_resumen_cruce(self.df_packing, self.df_termografo, orden)
             self._log(

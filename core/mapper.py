@@ -49,7 +49,6 @@ MAPEO_TESCO_PALTA = {
 
 # Registro de mapeos disponibles por cliente y cultivo
 MAPEOS_DISPONIBLES = {
-    ("Westfalia Fruit", "Palta"): MAPEO_TESCO_PALTA,
     ("Tesco", "Palta"): MAPEO_TESCO_PALTA,
     # Aquí se irán agregando los demás clientes y cultivos:
     # ("Tesco", "Palta"):     MAPEO_TESCO_PALTA,
