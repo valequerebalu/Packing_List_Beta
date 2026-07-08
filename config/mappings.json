@@ -1,0 +1,39 @@
+{
+	"__default__": {
+		"template_file": null,
+		"output_sheet": "Packing List",
+		"join_keys": ["orden_beta", "pallet_id", "variedad"],
+		"output_fields": {
+			"Supplier name": ["supplier_name", "planta", "packhouse"],
+			"Vessel name": ["vessel_name", "nave"],
+			"Container number": ["container_number", "contenedor"],
+			"Customer name": ["customer_name", "cliente"],
+			"ETD": ["etd", "shipping_date"],
+			"ETA": ["eta"],
+			"Destination port": ["destination_port", "destino"],
+			"Supplier reference": ["orden_beta", "supplier_reference", "orden"],
+			"Variety": ["variedad"],
+			"Weight (kg)": ["weight", "peso"],
+			"Size": ["size", "calibre"],
+			"Class": ["class", "clase"],
+			"Country of Origin": ["country_of_origin", "pais_origen"],
+			"Number of boxes": ["boxes_total", "total_cajas"],
+			"Pallet quantity": ["pallet_quantity", "pallet_count"],
+			"Organic/Conventional": ["organic_conventional", "tipo_cultivo"],
+			"Pallet ID": ["pallet_id"],
+			"Glob of Gap Number": ["glob_of_gap_number"],
+			"Grower Code": ["grower_code"],
+			"Temp Tele Location": ["temp_tele_location"],
+			"Ethylene Absorber Location": ["ethylene_absorber_location"],
+			"Supplier Packhouse": ["packhouse", "planta"],
+			"Pack Date DD/MM/YYYY": ["pack_date", "fecha_empaque"]
+		}
+	},
+	"Westfalia Fruit": {
+		"Palta": {
+			"template_file": "westfalia_palta.xlsx",
+			"output_sheet": "Packing List",
+			"join_keys": ["orden_beta", "pallet_id", "variedad"]
+		}
+	}
+}

@@ -1,0 +1,70 @@
+"""Entry point de Beta Packing List."""
+
+from __future__ import annotations
+
+import logging
+import sys
+import threading
+from pathlib import Path
+
+from gui.app import BetaPackingApp
+
+
+def _configurar_logging() -> None:
+    logs_dir = Path(__file__).resolve().parent / "logs"
+    logs_dir.mkdir(exist_ok=True)
+    log_file = logs_dir / "app.log"
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(log_file, encoding="utf-8"),
+        ],
+    )
+
+
+def _instalar_manejadores_globales() -> None:
+    def _excepthook(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+
+        logging.critical(
+            "Excepción no controlada",
+            exc_info=(exc_type, exc_value, exc_traceback),
+        )
+
+    sys.excepthook = _excepthook
+
+    if hasattr(threading, "excepthook"):
+
+        def _threading_excepthook(args):
+            logging.critical(
+                "Excepción no controlada en hilo %s",
+                getattr(args.thread, "name", "sin-nombre"),
+                exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+            )
+
+        threading.excepthook = _threading_excepthook
+
+
+def main():
+    _configurar_logging()
+    _instalar_manejadores_globales()
+
+    try:
+        from db.database import engine, Base
+        from db import models
+
+        Base.metadata.create_all(bind=engine)
+    except Exception:
+        logging.exception("No se pudo inicializar la BD")
+
+    app = BetaPackingApp()
+    app.run()
+
+
+if __name__ == "__main__":
+    main()
