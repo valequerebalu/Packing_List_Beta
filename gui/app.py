@@ -27,14 +27,16 @@ class BetaPackingApp:
         self.root.withdraw()
         LoginWindow(self.root, self._on_login)
 
-    def _on_login(self, user: dict):
+    def _on_login(self, account):
         self.root.deiconify()
         usuario = {
-            "id": user.get("id"),
-            "username": user.get("username", ""),
-            "email": user.get("email") or user.get("username", "usuario@beta.com"),
-            "nombre": user.get("full_name") or user.get("nombre", "Usuario Beta"),
-            "is_admin": user.get("is_admin", False),
+            "email": account.get("username")
+            or account.get("email")
+            or "usuario@beta.com",
+            "nombre": account.get("name")
+            or account.get("nombre")
+            or "Usuario Beta",
+            "tenant_id": account.get("tenantId") or account.get("tid"),
         }
         self.main_window = MainWindow(self.root, usuario, on_logout=self._on_logout)
 

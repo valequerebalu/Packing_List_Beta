@@ -1,3 +1,5 @@
+"""Entry point de Beta Packing List."""
+
 from __future__ import annotations
 
 import logging
@@ -53,17 +55,12 @@ def main():
     _instalar_manejadores_globales()
 
     try:
-        from db.database import get_supabase
+        from db.database import engine, Base
+        from db import models
 
-        logging.info("Inicializando cliente API de Supabase...")
-        supabase = get_supabase()
-
-        # Hacemos un ping rápido e inofensivo a la tabla users para asegurar que responda
-        supabase.table("users").select("id").limit(1).execute()
-        logging.info("¡Conexión exitosa con Supabase en la nube!")
-
+        Base.metadata.create_all(bind=engine)
     except Exception:
-        logging.exception("No se pudo conectar a la API de Supabase de forma correcta")
+        logging.exception("No se pudo inicializar la BD")
 
     app = BetaPackingApp()
     app.run()
