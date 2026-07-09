@@ -1,16 +1,14 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from config.settings import DATABASE_URL
+from supabase import create_client, Client
 
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(bind=engine)
+SUPABASE_URL = "https://xythcnwjtbfwwcxxprbp.supabase.co"
+SUPABASE_KEY = "sb_publishable_IHo7OuyqmYxFo3YQnj4sGw_rABAps5G"
 
-class Base(DeclarativeBase):
-    pass
+_supabase_client: Client = None
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+
+def get_supabase() -> Client:
+
+    global _supabase_client
+    if _supabase_client is None:
+        _supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    return _supabase_client
