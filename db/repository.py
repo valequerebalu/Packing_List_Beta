@@ -1,162 +1,178 @@
-"""Consultas y operaciones de persistencia para la base local."""
+"""Consultas y operaciones de persistencia vía Supabase REST API."""
 
 from __future__ import annotations
 
+import json
+import logging
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.orm import Session
-
-from db.models import Customer, Generation, GenerationStatus, SharePointSource, Template, User
+from db.database import get_supabase
 
 
-def get_or_create_user(session: Session, *, email: str, full_name: str, microsoft_id: str | None = None, tenant_id: str | None = None) -> User:
-	user = session.query(User).filter(User.email == email).one_or_none()
-	if user is not None:
-		user.full_name = full_name or user.full_name
-		user.microsoft_id = microsoft_id or user.microsoft_id
-		user.tenant_id = tenant_id or user.tenant_id
-		return user
-
-	user = User(email=email, full_name=full_name, microsoft_id=microsoft_id, tenant_id=tenant_id)
-	session.add(user)
-	session.flush()
-	return user
+def obtener_clientes() -> list[str]:
+    supabase = get_supabase()
+    result = (
+        supabase.table("customers")
+        .select("name")
+        .eq("is_active", True)
+        .order("name")
+        .execute()
+    )
+    return [row["name"] for row in result.data]
 
 
-def get_or_create_customer(session: Session, *, code: str, name: str, country: str | None = None) -> Customer:
-	customer = session.query(Customer).filter(Customer.code == code).one_or_none()
-	if customer is not None:
-		customer.name = name or customer.name
-		customer.country = country or customer.country
-		return customer
-
-	customer = Customer(code=code, name=name, country=country)
-	session.add(customer)
-	session.flush()
-	return customer
-
-
-def get_or_create_template(
-	session: Session,
-	*,
-	customer_id: int,
-	created_by: int,
-	name: str,
-	file_path: str,
-	version: str = "1.0.0",
-	mapping_config: str | None = None,
-) -> Template:
-	template = (
-		session.query(Template)
-		.filter(Template.customer_id == customer_id, Template.name == name, Template.version == version)
-		.one_or_none()
-	)
-	if template is not None:
-		template.file_path = file_path or template.file_path
-		template.mapping_config = mapping_config or template.mapping_config
-		return template
-
-	template = Template(
-		customer_id=customer_id,
-		created_by=created_by,
-		name=name,
-		file_path=file_path,
-		version=version,
-		mapping_config=mapping_config,
-	)
-	session.add(template)
-	session.flush()
-	return template
+def obtener_cultivos() -> list[str]:
+    supabase = get_supabase()
+    result = (
+        supabase.table("crops")
+        .select("name")
+        .eq("is_active", True)
+        .order("name")
+        .execute()
+    )
+    return [row["name"] for row in result.data]
 
 
-def sha256_file(file_path: str | Path) -> str:
-	digest = sha256()
-	with Path(file_path).open("rb") as handle:
-		for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-			digest.update(chunk)
-	return digest.hexdigest()
+# ─── LÓGICA DE INSERCIÓN Y BÚSQUEDA (API REST) ───────────────────────────────
+
+
+def get_or_create_customer(code: str, name: str, country: str | None = None) -> dict:
+    """Busca un cliente por código; si no existe, lo crea."""
+    supabase = get_supabase()
+
+    result = supabase.table("customers").select("*").eq("code", code).execute()
+    if result.data:
+        return result.data[0]
+
+    nuevo_cliente = {"code": code, "name": name, "country": country}
+    result = supabase.table("customers").insert(nuevo_cliente).execute()
+    return result.data[0]
 
 
 def record_generation(
-	session: Session,
-	*,
-	user_id: int,
-	customer_id: int,
-	template_id: int,
-	packing_file_name: str,
-	thermograph_file_name: str,
-	packing_file_hash: str | None = None,
-	thermograph_file_hash: str | None = None,
-	sharepoint_source_id: int | None = None,
-	output_file_name: str | None = None,
-	output_file_path: str | None = None,
-	status: GenerationStatus = GenerationStatus.PENDING,
-	error_detail: str | None = None,
-	duration_seconds: int | None = None,
-) -> Generation:
-	generation = Generation(
-		user_id=user_id,
-		customer_id=customer_id,
-		template_id=template_id,
-		sharepoint_source_id=sharepoint_source_id,
-		packing_file_name=packing_file_name,
-		packing_file_hash=packing_file_hash,
-		thermograph_file_name=thermograph_file_name,
-		thermograph_file_hash=thermograph_file_hash,
-		output_file_name=output_file_name,
-		output_file_path=output_file_path,
-		status=status,
-		error_detail=error_detail,
-		duration_seconds=duration_seconds,
-	)
-	session.add(generation)
-	session.flush()
-	return generation
+    user_id: int,
+    customer_id: int,
+    template_id: int,
+    packing_file_name: str,
+    thermograph_file_name: str,
+    packing_file_hash: str | None = None,
+    thermograph_file_hash: str | None = None,
+    sharepoint_source_id: int | None = None,
+    output_file_name: str | None = None,
+    output_file_path: str | None = None,
+) -> dict:
+    """Registra el inicio de una generación de Excel en estado 'pending'."""
+    supabase = get_supabase()
+
+    datos_generacion = {
+        "user_id": user_id,
+        "customer_id": customer_id,
+        "template_id": template_id,
+        "sharepoint_source_id": sharepoint_source_id,
+        "packing_file_name": packing_file_name,
+        "packing_file_hash": packing_file_hash,
+        "thermograph_file_name": thermograph_file_name,
+        "thermograph_file_hash": thermograph_file_hash,
+        "output_file_name": output_file_name,
+        "output_file_path": output_file_path,
+        "status": "pending",
+    }
+
+    result = supabase.table("generations").insert(datos_generacion).execute()
+    return result.data[0]
 
 
 def save_generation_success(
-	session: Session,
-	generation: Generation,
-	*,
-	output_file_name: str,
-	output_file_path: str,
-	duration_seconds: int | None = None,
-) -> Generation:
-	generation.status = GenerationStatus.SUCCESS
-	generation.output_file_name = output_file_name
-	generation.output_file_path = output_file_path
-	generation.duration_seconds = duration_seconds
-	session.add(generation)
-	session.flush()
-	return generation
+    generation_id: int,
+    output_file_name: str,
+    output_file_path: str,
+    duration_seconds: int | None = None,
+) -> dict:
+    """Actualiza una generación a estado 'success'."""
+    supabase = get_supabase()
+
+    datos_actualizados = {
+        "status": "success",
+        "output_file_name": output_file_name,
+        "output_file_path": output_file_path,
+        "duration_seconds": duration_seconds,
+    }
+
+    result = (
+        supabase.table("generations")
+        .update(datos_actualizados)
+        .eq("id", generation_id)
+        .execute()
+    )
+    return result.data[0]
 
 
-def save_generation_error(session: Session, generation: Generation, error_detail: str, *, duration_seconds: int | None = None) -> Generation:
-	generation.status = GenerationStatus.ERROR
-	generation.error_detail = error_detail
-	generation.duration_seconds = duration_seconds
-	session.add(generation)
-	session.flush()
-	return generation
+def save_generation_error(
+    generation_id: int, error_detail: str, duration_seconds: int | None = None
+) -> dict:
+    """Actualiza una generación a estado 'error'."""
+    supabase = get_supabase()
+
+    datos_actualizados = {
+        "status": "error",
+        "error_detail": error_detail,
+        "duration_seconds": duration_seconds,
+    }
+
+    result = (
+        supabase.table("generations")
+        .update(datos_actualizados)
+        .eq("id", generation_id)
+        .execute()
+    )
+    return result.data[0]
 
 
-def get_or_create_sharepoint_source(
-	session: Session,
-	*,
-	file_name: str,
-	file_url: str,
-	file_version: str | None = None,
-	last_modified=None,
-) -> SharePointSource:
-	source = session.query(SharePointSource).filter(SharePointSource.file_name == file_name, SharePointSource.file_url == file_url).one_or_none()
-	if source is not None:
-		source.file_version = file_version or source.file_version
-		source.last_modified = last_modified or source.last_modified
-		return source
+def obtener_template(cliente: str, cultivo: str) -> dict | None:
+    """
+    Busca un template activo para el cliente y cultivo dados.
+    Retorna dict con id, name, file_path, mapping_config (parsed), o None.
+    """
+    supabase = get_supabase()
 
-	source = SharePointSource(file_name=file_name, file_url=file_url, file_version=file_version, last_modified=last_modified)
-	session.add(source)
-	session.flush()
-	return source
+    result = (
+        supabase.table("templates")
+        .select(
+            "id, name, file_path, mapping_config, "
+            "customers(name), crops(name)"
+        )
+        .eq("status", "active")
+        .execute()
+    )
+
+    for row in result.data:
+        nombre_cliente = (row.get("customers") or {}).get("name", "")
+        nombre_cultivo = (row.get("crops") or {}).get("name", "")
+        if nombre_cliente == cliente and nombre_cultivo == cultivo:
+            mc = row["mapping_config"]
+            if isinstance(mc, str):
+                mc = json.loads(mc)
+            row["mapping_config"] = mc
+            logging.debug(
+                "Template encontrado: id=%s name=%s", row["id"], row["name"]
+            )
+            return row
+
+    logging.warning(
+        "No hay template activo para cliente='%s' cultivo='%s'", cliente, cultivo
+    )
+    return None
+
+
+# ─── UTILIDADES ──────────────────────────────────────────────────────────────
+
+
+def sha256_file(file_path: str | Path) -> str:
+    """Genera el hash SHA-256 de un archivo físico."""
+    digest = sha256()
+    with Path(file_path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

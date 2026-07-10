@@ -5,13 +5,8 @@ Toma las filas ya cruzadas y mapeadas (provenientes de core/mapper.py)
 y las escribe directamente sobre una copia de la plantilla .xlsx del cliente,
 respetando el formato original (fechas, dropdowns, encabezados).
 
-Estructura confirmada de la plantilla (ej. Tesco/Westfalia — Sheet1):
-- Fila 2 (D2:G3, merged): título "PACKING LIST"
-- Fila 6: encabezados (columnas A a W)
-- Fila 7 en adelante: datos
-- Columna J (Weight kg) y L (Class): dropdowns ligados a hoja LookUps,
-  pero se escribe el valor tal cual viene de Beta (ya validado en origen)
-- Columnas E, F, W: formato de fecha (mm-dd-yy)
+El orden de columnas y las columnas de fecha ahora se obtienen del
+mapping_config almacenado en Supabase (tabla templates), NO están hardcodeados.
 """
 
 from pathlib import Path
@@ -21,55 +16,7 @@ import shutil
 import openpyxl
 import pandas as pd
 
-# ─── Configuración de la plantilla ────────────────────────────────────────────
-
-FILA_ENCABEZADO = 6
-FILA_INICIO_DATOS = 7
-
-# Orden exacto de columnas A→W tal como están en la plantilla Tesco
-COLUMNAS_PLANTILLA = [
-    "Supplier name",
-    "Vessel name",
-    "Container number",
-    "Customer name (Tesco/Westfalia)",
-    "ETD",
-    "ETA",
-    "Destination port",
-    "Supplier reference",
-    "Variety",
-    "Weight (kg)",
-    "Size",
-    "Class",
-    "Country of Origin",
-    "Number of boxes",
-    "Pallet quantity",
-    "Organic / Conventional",
-    "Pallet ID",
-    "Global Gap Number",
-    "Grower Code",
-    "Temp Tale Location",
-    "Ethylene Absorber Location",
-    "Supplier Packhouse",
-    "Pack Date DD/MM/YYYY",
-    "",
-]
-
-# Columnas que requieren formato de fecha en la plantilla
-COLUMNAS_FECHA = {"ETD", "ETA", "Pack Date DD/MM/YYYY"}
-
-# Ruta a las plantillas por cliente
-CARPETA_TEMPLATES = Path(__file__).parent.parent / "templates"
-
-# Mapeo cliente+cultivo → nombre de archivo de plantilla
-PLANTILLAS_POR_CLIENTE = {
-    ("Tesco", "Palta"): "PLANTILLA_TESCO.xlsx",
-    (
-        "Westfalia Fruit",
-        "Palta",
-    ): "PLANTILLA_TESCO.xlsx",  # misma estructura de columnas
-}
-
-CARPETA_SALIDA = Path.home() / "Desktop" / "Beta Packing - Generados"
+from config.settings import TEMPLATES_DIR, OUTPUT_DIR
 
 
 # ─── Función principal ────────────────────────────────────────────────────────
@@ -77,8 +24,7 @@ CARPETA_SALIDA = Path.home() / "Desktop" / "Beta Packing - Generados"
 
 def generar_excel(
     filas: list[dict],
-    cliente: str,
-    cultivo: str,
+    template_data: dict,
     orden_beta: str,
 ) -> str:
     """
@@ -86,25 +32,51 @@ def generar_excel(
     de la plantilla del cliente.
 
     Args:
-        filas:      Lista de diccionarios (salida de core.mapper.cruzar_datos)
-        cliente:    Nombre del cliente, ej: 'Tesco'
-        cultivo:    Cultivo del pedido, ej: 'Palta'
-        orden_beta: Orden procesada, ej: 'BP-493' (para nombrar el archivo)
+        filas:         Lista de diccionarios (salida de core.mapper.cruzar_datos)
+        template_data: Dict con info del template desde Supabase
+                       (id, name, file_path, mapping_config)
+        orden_beta:    Orden procesada, ej: 'BP-493'
 
     Returns:
         Ruta absoluta del archivo Excel generado
     """
-    ruta_plantilla = _obtener_ruta_plantilla(cliente, cultivo)
-    ruta_salida = _construir_ruta_salida(cliente, orden_beta)
+    mapping_config = template_data["mapping_config"]
+
+    # Obtener configuración desde mapping_config
+    sheet_name = mapping_config.get("sheet_name", "Sheet1")
+    data_start_row = mapping_config.get("data_start_row", 7)
+    columns_config = mapping_config["columns"]
+
+    # Orden de columnas = orden de keys del dict (Python 3.7+ preserva inserción)
+    column_order = list(columns_config.keys())
+
+    # Columnas de fecha: usar date_columns del mapping o detectar por "format"
+    date_columns = set()
+    if "date_columns" in mapping_config:
+        date_columns = set(mapping_config["date_columns"])
+    else:
+        for col_name, col_cfg in columns_config.items():
+            if col_cfg.get("format") == "date":
+                date_columns.add(col_name)
+
+    # Resolver ruta del template
+    ruta_plantilla = TEMPLATES_DIR / template_data["file_path"]
+    if not ruta_plantilla.exists():
+        raise FileNotFoundError(
+            f"No se encontró el archivo de plantilla: {ruta_plantilla}"
+        )
+
+    # Construir ruta de salida
+    ruta_salida = _construir_ruta_salida(orden_beta)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # Copiar la plantilla para no tocar el original
-    CARPETA_SALIDA.mkdir(parents=True, exist_ok=True)
     shutil.copy(ruta_plantilla, ruta_salida)
 
     wb = openpyxl.load_workbook(ruta_salida)
-    ws = wb["Sheet1"] if "Sheet1" in wb.sheetnames else wb.active
+    ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active
 
-    _escribir_filas(ws, filas)
+    _escribir_filas(ws, filas, column_order, date_columns, data_start_row)
 
     wb.save(ruta_salida)
     wb.close()
@@ -112,62 +84,39 @@ def generar_excel(
     return str(ruta_salida)
 
 
-def listar_plantillas_disponibles() -> list[tuple[str, str]]:
-    """Retorna la lista de combinaciones (cliente, cultivo) que tienen plantilla configurada."""
-    return list(PLANTILLAS_POR_CLIENTE.keys())
-
-
 # ─── Helpers privados ─────────────────────────────────────────────────────────
 
 
-def _obtener_ruta_plantilla(cliente: str, cultivo: str) -> Path:
-    """Busca el archivo de plantilla correspondiente al cliente y cultivo."""
-    clave = (cliente, cultivo)
-    nombre_archivo = PLANTILLAS_POR_CLIENTE.get(clave)
-
-    if nombre_archivo is None:
-        disponibles = list(PLANTILLAS_POR_CLIENTE.keys())
-        raise ValueError(
-            f"No hay plantilla configurada para '{cliente}' — '{cultivo}'. "
-            f"Plantillas disponibles: {disponibles}"
-        )
-
-    ruta = CARPETA_TEMPLATES / nombre_archivo
-    if not ruta.exists():
-        raise FileNotFoundError(f"No se encontró el archivo de plantilla: {ruta}")
-
-    return ruta
-
-
-def _construir_ruta_salida(cliente: str, orden_beta: str) -> Path:
+def _construir_ruta_salida(orden_beta: str) -> Path:
     """Genera un nombre de archivo único para el output."""
-    # cliente_limpio = cliente.replace(" ", "_").replace("/", "-")
-    orden = orden_beta.replace(" ", "")
-    orden_limpia = str(orden).strip().upper()
-    prefijo = "".join([caracter for caracter in orden_limpia if caracter.isalpha()])
-    numeros = "".join([caracter for caracter in orden_limpia if caracter.isdigit()])
+    orden_limpia = str(orden_beta).strip().upper().replace(" ", "")
+    prefijo = "".join(c for c in orden_limpia if c.isalpha())
+    numeros = "".join(c for c in orden_limpia if c.isdigit())
     if not numeros:
-        return prefijo
-    # timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-
-    nombre = f"{prefijo}{numeros.zfill(4)}-PACKING_LIST.xlsx"
-    return CARPETA_SALIDA / nombre
+        return OUTPUT_DIR / f"{prefijo}-PACKING_LIST.xlsx"
+    return OUTPUT_DIR / f"{prefijo}{numeros.zfill(4)}-PACKING_LIST.xlsx"
 
 
-def _escribir_filas(ws, filas: list[dict]):
+def _escribir_filas(
+    ws,
+    filas: list[dict],
+    column_order: list[str],
+    date_columns: set[str],
+    data_start_row: int,
+):
     """
-    Escribe cada fila del listado en la hoja, empezando en FILA_INICIO_DATOS.
-    Respeta el orden exacto de columnas de la plantilla.
+    Escribe cada fila del listado en la hoja, empezando en data_start_row.
+    Respeta el orden exacto de columnas definido en mapping_config.
     Aplica formato de fecha a las columnas correspondientes.
     """
-    fila_excel = FILA_INICIO_DATOS
+    fila_excel = data_start_row
 
     for fila_datos in filas:
-        for idx, nombre_columna in enumerate(COLUMNAS_PLANTILLA, start=1):
+        for idx, nombre_columna in enumerate(column_order, start=1):
             valor = fila_datos.get(nombre_columna)
             celda = ws.cell(row=fila_excel, column=idx)
 
-            if nombre_columna in COLUMNAS_FECHA:
+            if nombre_columna in date_columns:
                 celda.value = _convertir_fecha(valor)
                 celda.number_format = "dd/mm/yyyy"
             else:
@@ -188,7 +137,6 @@ def _convertir_valor(valor):
     if not valor_str:
         return None
 
-    # Intentar convertir a número (entero o decimal)
     try:
         if "." in valor_str:
             return float(valor_str)
@@ -201,7 +149,6 @@ def _convertir_fecha(valor):
     """
     Convierte un valor de fecha (string en varios formatos posibles)
     a un objeto datetime que Excel pueda formatear correctamente.
-    Si no se puede convertir, retorna el valor original como texto.
     """
     if valor is None:
         return None
@@ -229,7 +176,6 @@ def _convertir_fecha(valor):
         except ValueError:
             continue
 
-    # Si ya viene como datetime (por ejemplo desde pandas), retornarlo tal cual
     if isinstance(valor, datetime):
         return valor
 
@@ -240,5 +186,4 @@ def _convertir_fecha(valor):
     except Exception:
         pass
 
-    # No se pudo convertir — devolver como texto para no perder el dato
     return valor_str

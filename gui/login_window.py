@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import customtkinter as ctk
 from tkinter import messagebox
 from PIL import Image
 
 from auth.db_auth import authenticate, DBAuthError
+from config.settings import bundle_dir
 from gui.theme import (
     BG,
     BORDER,
@@ -72,8 +72,7 @@ class LoginWindow(ctk.CTkToplevel):
         head.grid(row=0, column=0, sticky="ew", padx=24, pady=(24, 10))
         head.grid_columnconfigure(0, weight=1)
 
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        ruta_imagen = os.path.join(base_dir, "templates", "logo_beta.png")
+        ruta_imagen = str(bundle_dir() / "templates" / "logo_beta.png")
 
         imagen_badge = ctk.CTkImage(
             light_image=Image.open(ruta_imagen),

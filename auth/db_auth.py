@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
-
-from passlib.hash import scrypt
-
+import bcrypt
 from db.database import get_supabase
 from auth.session import update_session
 
@@ -18,7 +16,7 @@ def authenticate(username: str, password: str) -> dict[str, Any]:
 
     result = supabase.table("users").select("*").eq("username", username).execute()
 
-    if not result.data or len(result.data) == 0:
+    if not result.data:
         raise DBAuthError("Usuario no encontrado.")
 
     user = result.data[0]
@@ -26,13 +24,13 @@ def authenticate(username: str, password: str) -> dict[str, Any]:
     if not user.get("is_active", True):
         raise DBAuthError("Usuario inactivo. Contacta al administrador.")
 
-    if not scrypt.verify(password, user["password_hash"]):
+    if not bcrypt.checkpw(
+        password.encode("utf-8"), user["password_hash"].encode("utf-8")
+    ):
         raise DBAuthError("Contraseña incorrecta.")
 
-    now = datetime.utcnow().isoformat()
-    supabase.table("users").update({"last_login": now}).eq(
-        "id", user["id"]
-    ).execute()
+    now = datetime.now(timezone.utc).isoformat()
+    supabase.table("users").update({"last_login": now}).eq("id", user["id"]).execute()
 
     update_session(
         access_token=f"session_{user['id']}_{user['username']}",

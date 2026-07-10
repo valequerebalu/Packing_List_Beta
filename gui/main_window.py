@@ -2,12 +2,13 @@ import logging
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from datetime import datetime
+from pathlib import Path
 import threading
-import os
 import customtkinter as ctk
 from PIL import Image
-import os
+from db.repository import obtener_template
 
+from config.settings import bundle_dir
 from core.excel_reader import (
     extraer_orden_beta_de_packing,
     leer_packing_beta,
@@ -16,6 +17,8 @@ from core.excel_reader import (
 from core.excel_writer import generar_excel
 from core.mapper import cruzar_datos, obtener_resumen_cruce
 from core.sharepoint import extraer_datos_sharepoint, get_sharepoint_crop_dataframe
+from db.repository import obtener_clientes, obtener_cultivos
+
 from gui.theme import (
     BG,
     BG_CONTENT,
@@ -32,10 +35,6 @@ from gui.theme import (
     WARN,
 )
 
-CLIENTES = ["Tesco", "OGL", "United", "Walmart", "Global Berry", "Dole", "Pacific"]
-
-CULTIVOS = ["Palta", "Arándano", "Uva", "Espárrago"]
-
 W_INPUT = 260
 H_INPUT = 38
 RADIUS = 10
@@ -47,10 +46,11 @@ class MainWindow:
         self.usuario = usuario
         self.on_logout = on_logout or (lambda: root.destroy())
 
+        self.clientes, self.cultivos = self._cargar_listas()
         self.ruta_packing = tk.StringVar()
         self.ruta_termografo = tk.StringVar()
-        self.cliente_var = tk.StringVar(value=CLIENTES[0])
-        self.cultivo_var = tk.StringVar(value=CULTIVOS[0])
+        self.cliente_var = tk.StringVar(value=self.clientes[0] if self.clientes else "")
+        self.cultivo_var = tk.StringVar(value=self.cultivos[0] if self.cultivos else "")
         self.orden_beta_var = tk.StringVar()
         self.sp_estado = tk.StringVar(value="Conectando...")
 
@@ -64,6 +64,27 @@ class MainWindow:
         self._configurar_ventana()
         self._build_ui()
         self._simular_conexion_sharepoint()
+
+    def _cargar_listas(self) -> tuple[list[str], list[str]]:
+        try:
+            clientes = obtener_clientes()
+            cultivos = obtener_cultivos()
+            if clientes and cultivos:
+                return clientes, cultivos
+
+            logging.warning(
+                "Las tablas de clientes o cultivos están vacías en Supabase."
+            )
+            return [], []
+        except Exception as e:
+
+            logging.error(f"Error de conexión al cargar tablas: {e}")
+
+            messagebox.showerror(
+                title="Error de Conexión",
+                message="No se pudieron cargar los clientes y cultivos desde el servidor. Revisa tu conexión a internet.",
+            )
+        return [], []
 
     # ─── Ventana ──────────────────────────────────────────────────────────────
 
@@ -123,9 +144,7 @@ class MainWindow:
         inner = ctk.CTkFrame(f, fg_color="transparent")
         inner.pack(fill="both", padx=36, pady=14)
 
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-        ruta_imagen = os.path.join(base_dir, "templates", "logo_beta.png")
+        ruta_imagen = str(bundle_dir() / "templates" / "logo_beta.png")
 
         imagen_badge = ctk.CTkImage(
             light_image=Image.open(ruta_imagen),
@@ -229,8 +248,8 @@ class MainWindow:
 
         for col_idx, (label, values, var) in enumerate(
             [
-                ("Cliente", CLIENTES, self.cliente_var),
-                ("Cultivo", CULTIVOS, self.cultivo_var),
+                ("Cliente", self.clientes, self.cliente_var),
+                ("Cultivo", self.cultivos, self.cultivo_var),
             ]
         ):
             col = ctk.CTkFrame(grid, fg_color="transparent")
@@ -491,8 +510,8 @@ class MainWindow:
             )
 
         # Resetear listas desplegables a valores por defecto
-        self.cliente_var.set(CLIENTES[0])
-        self.cultivo_var.set(CULTIVOS[0])
+        self.cliente_var.set(self.clientes[0] if self.clientes else "")
+        self.cultivo_var.set(self.cultivos[0] if self.cultivos else "")
 
         # Resetear label de órdenes disponibles
         self.lbl_ordenes.configure(
@@ -522,7 +541,7 @@ class MainWindow:
         if not ruta:
             return
         var.set(ruta)
-        nombre = os.path.basename(ruta)
+        nombre = Path(ruta).name
         lbl_file.configure(text=nombre, text_color=PRIMARY)
         self._log(f"Archivo cargado: {nombre}", "ok")
         if var is self.ruta_packing:
@@ -602,12 +621,14 @@ class MainWindow:
                 "Termógrafo sin registros",
                 f"No se encontraron los códigos de termógrafo "
                 f"para la orden '{orden}'.\n\n"
-                f"¿Deseas continuar de todas formas?"
+                f"¿Deseas continuar de todas formas?",
             )
             if not continuar:
                 self._log("Proceso cancelado — termógrafo sin códigos", "warn")
                 return
-            self._log("Termógrafo sin códigos — se generará sin la última columna", "warn")
+            self._log(
+                "Termógrafo sin códigos — se generará sin la última columna", "warn"
+            )
 
         self.btn_generar.configure(state="disabled", text="Generando...")
         self._log(
@@ -642,17 +663,32 @@ class MainWindow:
 
             self._log("Obteniendo datos de SharePoint...", "info")
             datos_sp = {}
-            df_sp = get_sharepoint_crop_dataframe(self.cultivo_var.get())
-            if df_sp is not None:
-                datos_sp = extraer_datos_sharepoint(df_sp, orden)
-                self._log("SharePoint: datos locales sincronizados", "ok")
-            else:
-                self._log(
-                    "SharePoint no disponible; se usará el cruce sin datos adicionales.",
-                    "warn",
-                )
+            try:
+                df_sp = get_sharepoint_crop_dataframe(self.cultivo_var.get())
+                if df_sp is not None:
+                    datos_sp = extraer_datos_sharepoint(df_sp, orden)
+                    self._log("SharePoint: datos sincronizados", "ok")
+            except FileNotFoundError as e:
+                self._log(str(e), "warn")
+                self._log("Continuando sin datos de SharePoint...", "warn")
+            except ValueError as e:
+                self._log(str(e), "warn")
+                self._log("Continuando sin datos de SharePoint...", "warn")
 
             self._log("Cruzando información...", "info")
+            # Obtener template y mapping_config desde Supabase
+
+            template = obtener_template(self.cliente_var.get(), self.cultivo_var.get())
+
+            if template is None:
+                raise ValueError(
+                    f"No hay plantilla configurada para "
+                    f"'{self.cliente_var.get()}' — '{self.cultivo_var.get()}'"
+                )
+
+            self._log(f"Plantilla encontrada: {template['name']}", "ok")
+
+            # Luego pasas el mapping_config a cruzar_datos
             filas = cruzar_datos(
                 self.df_packing,
                 self.df_termografo,
@@ -660,14 +696,14 @@ class MainWindow:
                 self.cliente_var.get(),
                 self.cultivo_var.get(),
                 orden,
+                template["mapping_config"],  # ← viene de Supabase
             )
             self._log(f"Cruce completado: {len(filas)} filas", "ok")
 
             self._log("Generando Excel de salida...", "info")
             ruta_salida = generar_excel(
                 filas,
-                self.cliente_var.get(),
-                self.cultivo_var.get(),
+                template,
                 orden,
             )
             self._log(f"Excel generado: {ruta_salida}", "ok")

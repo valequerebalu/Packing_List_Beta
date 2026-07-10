@@ -3,15 +3,14 @@ from __future__ import annotations
 import logging
 import sys
 import threading
-from pathlib import Path
 
+from config.settings import LOGS_DIR
 from gui.app import BetaPackingApp
 
 
 def _configurar_logging() -> None:
-    logs_dir = Path(__file__).resolve().parent / "logs"
-    logs_dir.mkdir(exist_ok=True)
-    log_file = logs_dir / "app.log"
+    LOGS_DIR.mkdir(exist_ok=True)
+    log_file = LOGS_DIR / "app.log"
 
     logging.basicConfig(
         level=logging.INFO,
