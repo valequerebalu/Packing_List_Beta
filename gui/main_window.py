@@ -661,20 +661,6 @@ class MainWindow:
             for adv in resumen["advertencias"]:
                 self._log(adv, "warn")
 
-            self._log("Obteniendo datos de SharePoint...", "info")
-            datos_sp = {}
-            try:
-                df_sp = get_sharepoint_crop_dataframe(self.cultivo_var.get())
-                if df_sp is not None:
-                    datos_sp = extraer_datos_sharepoint(df_sp, orden)
-                    self._log("SharePoint: datos sincronizados", "ok")
-            except FileNotFoundError as e:
-                self._log(str(e), "warn")
-                self._log("Continuando sin datos de SharePoint...", "warn")
-            except ValueError as e:
-                self._log(str(e), "warn")
-                self._log("Continuando sin datos de SharePoint...", "warn")
-
             self._log("Cruzando información...", "info")
             # Obtener template y mapping_config desde Supabase
 
@@ -687,6 +673,22 @@ class MainWindow:
                 )
 
             self._log(f"Plantilla encontrada: {template['name']}", "ok")
+
+            sp_header_row = template["mapping_config"].get("sharepoint_header_row", 3)
+
+            self._log("Obteniendo datos de SharePoint...", "info")
+            datos_sp = {}
+            try:
+                df_sp = get_sharepoint_crop_dataframe(self.cultivo_var.get(), header_row=sp_header_row)
+                if df_sp is not None:
+                    datos_sp = extraer_datos_sharepoint(df_sp, orden)
+                    self._log("SharePoint: datos sincronizados", "ok")
+            except FileNotFoundError as e:
+                self._log(str(e), "warn")
+                self._log("Continuando sin datos de SharePoint...", "warn")
+            except ValueError as e:
+                self._log(str(e), "warn")
+                self._log("Continuando sin datos de SharePoint...", "warn")
 
             # Luego pasas el mapping_config a cruzar_datos
             filas = cruzar_datos(

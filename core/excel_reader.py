@@ -38,6 +38,7 @@ COLUMNAS_PACKING = {
     "CATEGORIA": "categoria",
     "CALIBRE": "calibre",
     "PESO CAJA": "peso_caja",
+    "PRESENTACION": "presentacion",
     "TOTAL CAJAS": "total_cajas",
     "TOTAL KILOS": "total_kilos",
 }

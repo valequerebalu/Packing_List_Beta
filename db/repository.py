@@ -131,18 +131,12 @@ def save_generation_error(
 
 
 def obtener_template(cliente: str, cultivo: str) -> dict | None:
-    """
-    Busca un template activo para el cliente y cultivo dados.
-    Retorna dict con id, name, file_path, mapping_config (parsed), o None.
-    """
+
     supabase = get_supabase()
 
     result = (
         supabase.table("templates")
-        .select(
-            "id, name, file_path, mapping_config, "
-            "customers(name), crops(name)"
-        )
+        .select("id, name, file_path, mapping_config, " "customers(name), crops(name)")
         .eq("status", "active")
         .execute()
     )
@@ -155,9 +149,7 @@ def obtener_template(cliente: str, cultivo: str) -> dict | None:
             if isinstance(mc, str):
                 mc = json.loads(mc)
             row["mapping_config"] = mc
-            logging.debug(
-                "Template encontrado: id=%s name=%s", row["id"], row["name"]
-            )
+            logging.debug("Template encontrado: id=%s name=%s", row["id"], row["name"])
             return row
 
     logging.warning(

@@ -5,19 +5,22 @@ Toma las filas ya cruzadas y mapeadas (provenientes de core/mapper.py)
 y las escribe directamente sobre una copia de la plantilla .xlsx del cliente,
 respetando el formato original (fechas, dropdowns, encabezados).
 
-El orden de columnas y las columnas de fecha ahora se obtienen del
-mapping_config almacenado en Supabase (tabla templates), NO están hardcodeados.
+El orden de columnas se obtiene leyendo los encabezados de la plantilla,
+NO de un orden predefinido. Esto permite soportar plantillas con columnas
+de fórmula que no se sobreescriben.
 """
 
 from pathlib import Path
 from datetime import datetime
 import shutil
+import re
+import zipfile
+import tempfile
 
 import openpyxl
 import pandas as pd
 
 from config.settings import TEMPLATES_DIR, OUTPUT_DIR
-
 
 # ─── Función principal ────────────────────────────────────────────────────────
 
@@ -31,24 +34,15 @@ def generar_excel(
     Genera el archivo Excel final escribiendo las filas sobre una copia
     de la plantilla del cliente.
 
-    Args:
-        filas:         Lista de diccionarios (salida de core.mapper.cruzar_datos)
-        template_data: Dict con info del template desde Supabase
-                       (id, name, file_path, mapping_config)
-        orden_beta:    Orden procesada, ej: 'BP-493'
 
-    Returns:
-        Ruta absoluta del archivo Excel generado
     """
     mapping_config = template_data["mapping_config"]
 
     # Obtener configuración desde mapping_config
     sheet_name = mapping_config.get("sheet_name", "Sheet1")
+    header_row = mapping_config.get("header_row", 6)
     data_start_row = mapping_config.get("data_start_row", 7)
     columns_config = mapping_config["columns"]
-
-    # Orden de columnas = orden de keys del dict (Python 3.7+ preserva inserción)
-    column_order = list(columns_config.keys())
 
     # Columnas de fecha: usar date_columns del mapping o detectar por "format"
     date_columns = set()
@@ -73,18 +67,110 @@ def generar_excel(
     # Copiar la plantilla para no tocar el original
     shutil.copy(ruta_plantilla, ruta_salida)
 
+    # Extraer extLst del template ANTES de que openpyxl lo pierda
+    extlst_block, worksheet_attrs = _extraer_extlst(ruta_plantilla)
+
     wb = openpyxl.load_workbook(ruta_salida)
     ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active
 
-    _escribir_filas(ws, filas, column_order, date_columns, data_start_row)
+    # Leer encabezados de la plantilla para mapear nombre → columna Excel
+    header_map = _leer_encabezados(ws, header_row)
+
+    _escribir_filas(ws, filas, columns_config, header_map, date_columns, data_start_row)
 
     wb.save(ruta_salida)
     wb.close()
 
+    # Reinyectar extLst (data validations x14) que openpyxl descartó
+    if extlst_block:
+        _inyectar_extlst(ruta_salida, extlst_block, worksheet_attrs)
+
     return str(ruta_salida)
 
 
+# ─── Preservación de extensiones x14 (data validations) ──────────────────────
+
+
+def _extraer_extlst(xlsx_path: Path) -> tuple[str | None, str | None]:
+    """
+    Extrae el bloque <extLst> y las namespace declarations del sheet1.xml.
+    openpyxl elimina los namespaces x14/xm/mc al reescribir el XML.
+
+    Returns:
+        (extlst_block, worksheet_root_attrs) o (None, None)
+    """
+    try:
+        with zipfile.ZipFile(xlsx_path) as zf:
+            xml = zf.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        match = re.search(r"<extLst>.*?</extLst>", xml, re.DOTALL)
+        extlst = (
+            match.group() if match and "x14:dataValidation" in match.group() else None
+        )
+        root_match = re.search(r"<worksheet([^>]*?)>", xml)
+        root_attrs = root_match.group(1) if root_match else None
+        return extlst, root_attrs
+    except Exception:
+        pass
+    return None, None
+
+
+def _inyectar_extlst(xlsx_path: Path, extlst_block: str, worksheet_attrs: str | None):
+    """
+    Reinyecta el bloque extLst y restaura las namespace declarations
+    que openpyxl eliminó del tag <worksheet>.
+    """
+    tmp_dir = Path(tempfile.gettempdir())
+    tmp_xlsx = tmp_dir / f"_extlst_patch_{id(extlst_block)}.xlsx"
+
+    with zipfile.ZipFile(xlsx_path, "r") as zin, zipfile.ZipFile(
+        tmp_xlsx, "w", zipfile.ZIP_DEFLATED
+    ) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                xml = data.decode("utf-8")
+                # Restaurar namespace declarations en <worksheet ...>
+                if worksheet_attrs:
+                    xml = re.sub(
+                        r"<worksheet([^>]*?)>",
+                        f"<worksheet{worksheet_attrs}>",
+                        xml,
+                    )
+                # Inyectar extLst
+                if "<extLst>" in xml:
+                    xml = re.sub(
+                        r"<extLst>.*?</extLst>",
+                        extlst_block,
+                        xml,
+                        flags=re.DOTALL,
+                    )
+                else:
+                    xml = xml.replace(
+                        "</worksheet>",
+                        extlst_block + "</worksheet>",
+                    )
+                data = xml.encode("utf-8")
+            zout.writestr(item, data)
+
+    shutil.move(str(tmp_xlsx), str(xlsx_path))
+
+
 # ─── Helpers privados ─────────────────────────────────────────────────────────
+
+
+def _leer_encabezados(ws, header_row: int) -> dict[str, int]:
+    """
+    Lee la fila de encabezados de la plantilla y retorna un dict
+    que mapea nombre_de_columna → número_de_columna (1-indexed).
+    Solo incluye columnas con valor no vacío.
+    """
+    header_map = {}
+    for cell in ws[header_row]:
+        if cell.value is not None:
+            nombre = str(cell.value).strip()
+            if nombre:
+                header_map[nombre] = cell.column
+    return header_map
 
 
 def _construir_ruta_salida(orden_beta: str) -> Path:
@@ -100,21 +186,28 @@ def _construir_ruta_salida(orden_beta: str) -> Path:
 def _escribir_filas(
     ws,
     filas: list[dict],
-    column_order: list[str],
+    columns_config: dict,
+    header_map: dict[str, int],
     date_columns: set[str],
     data_start_row: int,
 ):
     """
-    Escribe cada fila del listado en la hoja, empezando en data_start_row.
-    Respeta el orden exacto de columnas definido en mapping_config.
-    Aplica formato de fecha a las columnas correspondientes.
+    Escribe cada fila del listado en la hoja, mapeando cada campo
+    del mapping_config a la columna correcta de la plantilla (según header_map).
+    Las columnas que no existen en la plantilla se ignoran.
     """
     fila_excel = data_start_row
 
     for fila_datos in filas:
-        for idx, nombre_columna in enumerate(column_order, start=1):
+        for nombre_columna, config in columns_config.items():
+            # Determinar columna Excel: explícita en config o por nombre de encabezado
+            col_idx = config.get("column") or header_map.get(nombre_columna)
+            if col_idx is None:
+                # Columna no existe en la plantilla — ignorar
+                continue
+
             valor = fila_datos.get(nombre_columna)
-            celda = ws.cell(row=fila_excel, column=idx)
+            celda = ws.cell(row=fila_excel, column=col_idx)
 
             if nombre_columna in date_columns:
                 celda.value = _convertir_fecha(valor)

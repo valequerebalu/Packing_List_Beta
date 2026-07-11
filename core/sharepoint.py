@@ -16,10 +16,17 @@ _NEGOCIO = "Complejo Agroindustrial Beta S.A"
 _SUBCARPETA = "Intranet - Reporte Exportaciones"
 
 
-def get_sharepoint_crop_dataframe(crop_name: str) -> pd.DataFrame | None:
+def get_sharepoint_crop_dataframe(
+    crop_name: str, header_row: int = 3
+) -> pd.DataFrame | None:
     """
     Busca y carga el Excel de SharePoint sincronizado localmente para el cultivo dado.
     Busca automáticamente en todos los discos y rutas de OneDrive.
+
+    Args:
+        crop_name:  Nombre del cultivo (ej: 'Palta', 'Arandano')
+        header_row: Fila del encabezado en la hoja 'Base de datos' (0-indexed).
+                    Palta usa 3, Arándano usa 4.
     """
     anio = datetime.now().year
     file_name = f"Reporte Embarques de Exportaciónes - {crop_name} {anio}.xlsx"
@@ -45,7 +52,7 @@ def get_sharepoint_crop_dataframe(crop_name: str) -> pd.DataFrame | None:
     logging.debug("SharePoint leyendo: %s", full_path)
 
     try:
-        df = pd.read_excel(full_path, sheet_name="Base de datos", header=3)
+        df = pd.read_excel(full_path, sheet_name="Base de datos", header=header_row)
         logging.debug("SharePoint %s cargado — %d filas", crop_name, len(df))
         return df
 
@@ -70,22 +77,26 @@ def _buscar_rutas_sharepoint() -> list[Path]:
     if SHAREPOINT_LOCAL_DIR and SHAREPOINT_LOCAL_DIR.exists():
         roots.append(SHAREPOINT_LOCAL_DIR)
 
-    # 2. Escanear todos los discos por patrón OneDrive-{usuario}
+    # 2. Escanear discos: OneDrive-* y cualquier carpeta con la subcarpeta del negocio
     for drive_letter in "CDEFGH":
         drive = Path(f"{drive_letter}:\\")
         if not drive.exists():
             continue
         try:
-            for od_dir in drive.iterdir():
-                if not od_dir.is_dir():
+            for carpeta in drive.iterdir():
+                if not carpeta.is_dir():
                     continue
-                # Buscar OneDrive-* o OneDrive (sin sufijo)
-                nombre = od_dir.name.lower()
-                if not nombre.startswith("onedrive"):
-                    continue
-                carpeta_negocio = od_dir / _NEGOCIO / _SUBCARPETA
-                if carpeta_negocio.exists():
-                    roots.append(carpeta_negocio)
+                nombre = carpeta.name.lower()
+                # Patrón OneDrive-*
+                if nombre.startswith("onedrive"):
+                    candidata = carpeta / _NEGOCIO / _SUBCARPETA
+                    if candidata.exists():
+                        roots.append(candidata)
+                else:
+                    # Búsqueda profunda: cualquier carpeta con el negocio adentro
+                    candidata = carpeta / _NEGOCIO / _SUBCARPETA
+                    if candidata.exists():
+                        roots.append(candidata)
         except PermissionError:
             continue
 
@@ -113,7 +124,10 @@ def _buscar_rutas_sharepoint() -> list[Path]:
 
 
 def extraer_datos_sharepoint(df: pd.DataFrame, orden_beta: str | None = None) -> dict:
-    """Normaliza una fila de SharePoint a las claves que espera el mapper."""
+    """
+    Normaliza una fila de SharePoint y retorna TODOS los campos como dict.
+    El mapper puede acceder a cualquier campo por nombre de columna normalizado.
+    """
     if df is None or df.empty:
         return {}
 
@@ -128,28 +142,38 @@ def extraer_datos_sharepoint(df: pd.DataFrame, orden_beta: str | None = None) ->
         if not filtrado.empty:
             normalizado = filtrado
 
-    fila = normalizado.iloc[0].to_dict()
+    fila = normalizado.iloc[0]
 
-    return {
-        "Cliente": _valor_alias(fila, "cliente", "customer", "customer_name"),
-        "Nave": _valor_alias(fila, "nave", "vessel", "vessel_name"),
-        "ETD Programada": _valor_alias(fila, "etd_programada", "etd", "etd_programado"),
-        "ETA Programado": _valor_alias(fila, "eta_programado", "eta", "eta_programada"),
-        "Puerto Descarga": _valor_alias(
-            fila, "puerto_descarga", "destination_port", "puerto"
-        ),
-        "Orden Beta": _valor_alias(fila, "orden_beta", "orden", "order_beta"),
-        "AWB - Contenedor": _valor_alias(
-            fila,
-            "awb___contenedor",
-            "awb_contenedor",
-            "awb_container",
-            "awb_no",
-            "contenedor",
-            "container_number",
-            "container_no",
-        ),
-    }
+    # Retornar TODA la fila normalizada (valores limpios)
+    resultado = {}
+    for col, val in fila.items():
+        if col.startswith("unnamed"):
+            continue
+        if pd.isna(val):
+            resultado[col] = None
+        else:
+            texto = str(val).strip()
+            resultado[col] = None if texto in ("", "nan", "None", "NaN") else texto
+
+    # Aliases backward-compatible (nombres con mayúsculas que usa Tesco)
+    resultado["Cliente"] = _valor_alias(resultado, "cliente", "customer", "customer_name")
+    resultado["Nave"] = _valor_alias(resultado, "nave", "vessel", "vessel_name")
+    resultado["ETD Programada"] = _valor_alias(resultado, "etd_programada", "etd", "etd_programado")
+    resultado["ETA Programado"] = _valor_alias(resultado, "eta_programado", "eta", "eta_programada")
+    resultado["Puerto Descarga"] = _valor_alias(resultado, "puerto_descarga", "destination_port", "puerto")
+    resultado["Orden Beta"] = _valor_alias(resultado, "orden_beta", "orden", "order_beta")
+    resultado["AWB - Contenedor"] = _valor_alias(
+        resultado,
+        "awb___contenedor",
+        "awb_contenedor",
+        "awb_container",
+        "awb_no",
+        "contenedor",
+        "container_number",
+        "container_no",
+    )
+
+    return resultado
 
 
 # ─── Helpers privados ─────────────────────────────────────────────────────────
