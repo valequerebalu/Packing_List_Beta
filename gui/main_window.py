@@ -555,8 +555,20 @@ class MainWindow:
                     extraer_orden_beta_de_packing,
                 )
 
+                # Intentar obtener input_header_row del template si hay cliente/cultivo seleccionados
+                input_header_row = None
+                cliente = self.cliente_var.get()
+                cultivo = self.cultivo_var.get()
+                if cliente and cultivo:
+                    try:
+                        template = obtener_template(cliente, cultivo)
+                        if template:
+                            input_header_row = template["mapping_config"].get("input_header_row")
+                    except Exception:
+                        pass  # Sin template, auto-detección
+
                 self._log("Analizando packing Beta...", "info")
-                self.df_packing = leer_packing_beta(ruta)
+                self.df_packing = leer_packing_beta(ruta, header_row=input_header_row)
                 ordenes = extraer_orden_beta_de_packing(self.df_packing)
 
                 def ui():
@@ -643,9 +655,34 @@ class MainWindow:
         try:
             orden = self.orden_beta_var.get().strip()
 
+            self._log("Cruzando información...", "info")
+            # Obtener template y mapping_config desde Supabase
+
+            template = obtener_template(self.cliente_var.get(), self.cultivo_var.get())
+
+            if template is None:
+                raise ValueError(
+                    f"No hay plantilla configurada para "
+                    f"'{self.cliente_var.get()}' — '{self.cultivo_var.get()}'"
+                )
+
+            self._log(f"Plantilla encontrada: {template['name']}", "ok")
+
+            # Leer packing con input_header_row del mapping_config
+            input_header_row = template["mapping_config"].get("input_header_row")
+
             if self.df_packing is None:
                 self._log("Leyendo packing Beta...", "info")
-                self.df_packing = leer_packing_beta(self.ruta_packing.get())
+                self.df_packing = leer_packing_beta(
+                    self.ruta_packing.get(), header_row=input_header_row
+                )
+            else:
+                # Re-leer si el header_row del template difiere del auto-detectado
+                if input_header_row is not None:
+                    self._log("Releyendo packing Beta con header del template...", "info")
+                    self.df_packing = leer_packing_beta(
+                        self.ruta_packing.get(), header_row=input_header_row
+                    )
             self._log(f"Packing: {len(self.df_packing)} filas totales", "ok")
 
             self._log(
@@ -660,19 +697,6 @@ class MainWindow:
             )
             for adv in resumen["advertencias"]:
                 self._log(adv, "warn")
-
-            self._log("Cruzando información...", "info")
-            # Obtener template y mapping_config desde Supabase
-
-            template = obtener_template(self.cliente_var.get(), self.cultivo_var.get())
-
-            if template is None:
-                raise ValueError(
-                    f"No hay plantilla configurada para "
-                    f"'{self.cliente_var.get()}' — '{self.cultivo_var.get()}'"
-                )
-
-            self._log(f"Plantilla encontrada: {template['name']}", "ok")
 
             sp_header_row = template["mapping_config"].get("sharepoint_header_row", 3)
 
@@ -707,6 +731,7 @@ class MainWindow:
                 filas,
                 template,
                 orden,
+                datos_sp,
             )
             self._log(f"Excel generado: {ruta_salida}", "ok")
 

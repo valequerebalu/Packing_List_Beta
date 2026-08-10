@@ -29,16 +29,15 @@ def generar_excel(
     filas: list[dict],
     template_data: dict,
     orden_beta: str,
+    datos_sp: dict | None = None,
 ) -> str:
     """
     Genera el archivo Excel final escribiendo las filas sobre una copia
     de la plantilla del cliente.
-
-
     """
     mapping_config = template_data["mapping_config"]
 
-    # Obtener configuración desde mapping_config
+    # Obtener configuracion desde mapping_config
     sheet_name = mapping_config.get("sheet_name", "Sheet1")
     header_row = mapping_config.get("header_row", 6)
     data_start_row = mapping_config.get("data_start_row", 7)
@@ -57,7 +56,7 @@ def generar_excel(
     ruta_plantilla = TEMPLATES_DIR / template_data["file_path"]
     if not ruta_plantilla.exists():
         raise FileNotFoundError(
-            f"No se encontró el archivo de plantilla: {ruta_plantilla}"
+            f"No se encontro el archivo de plantilla: {ruta_plantilla}"
         )
 
     # Construir ruta de salida
@@ -73,7 +72,12 @@ def generar_excel(
     wb = openpyxl.load_workbook(ruta_salida)
     ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.active
 
-    # Leer encabezados de la plantilla para mapear nombre → columna Excel
+    # Escribir metadata en celdas especificas (si existe)
+    metadata_config = mapping_config.get("metadata", {})
+    if metadata_config:
+        _escribir_metadata(ws, metadata_config, filas, columns_config, datos_sp or {})
+
+    # Leer encabezados de la plantilla para mapear nombre a columna Excel
     header_map = _leer_encabezados(ws, header_row)
 
     _escribir_filas(ws, filas, columns_config, header_map, date_columns, data_start_row)
@@ -81,7 +85,7 @@ def generar_excel(
     wb.save(ruta_salida)
     wb.close()
 
-    # Reinyectar extLst (data validations x14) que openpyxl descartó
+    # Reinyectar extLst (data validations x14) que openpyxl descarto
     if extlst_block:
         _inyectar_extlst(ruta_salida, extlst_block, worksheet_attrs)
 
@@ -161,8 +165,8 @@ def _inyectar_extlst(xlsx_path: Path, extlst_block: str, worksheet_attrs: str | 
 def _leer_encabezados(ws, header_row: int) -> dict[str, int]:
     """
     Lee la fila de encabezados de la plantilla y retorna un dict
-    que mapea nombre_de_columna → número_de_columna (1-indexed).
-    Solo incluye columnas con valor no vacío.
+    que mapea nombre_de_columna a numero_de_columna (1-indexed).
+    Solo incluye columnas con valor no vacio.
     """
     header_map = {}
     for cell in ws[header_row]:
@@ -171,6 +175,65 @@ def _leer_encabezados(ws, header_row: int) -> dict[str, int]:
             if nombre:
                 header_map[nombre] = cell.column
     return header_map
+
+
+def _escribir_metadata(
+    ws,
+    metadata_config: dict,
+    filas: list[dict],
+    columns_config: dict,
+    datos_sp: dict,
+):
+    """
+    Escribe valores en celdas especificas definidas en metadata del mapping_config.
+    Soporta sources: fijo, sharepoint, sum_cajas, transform.
+    """
+    # Pre-calcular suma total de cajas para sum_cajas
+    total_cajas = 0
+    for fila in filas:
+        for col_name, cfg in columns_config.items():
+            if cfg["source"] == "packing" and cfg.get("field") == "total_cajas":
+                val = fila.get(col_name)
+                if val:
+                    try:
+                        total_cajas += int(float(str(val).replace(",", "")))
+                    except (ValueError, TypeError):
+                        pass
+            elif cfg["source"] == "transform":
+                transform = cfg.get("transform", {})
+                if transform.get("type") == "sum_cajas":
+                    val = fila.get(col_name)
+                    if val:
+                        try:
+                            total_cajas = int(float(str(val).replace(",", "")))
+                        except (ValueError, TypeError):
+                            pass
+
+    for celda_ref, config in metadata_config.items():
+        fuente = config["source"]
+
+        if fuente == "fijo":
+            valor = config.get("value", "")
+
+        elif fuente == "sharepoint":
+            field = config.get("field", "")
+            valor = datos_sp.get(field)
+
+        elif fuente == "sum_cajas":
+            valor = str(total_cajas) if total_cajas else ""
+
+        elif fuente == "transform":
+            # Reutilizar logica de transform de mapper
+            from core.mapper import _aplicar_transform
+            import pandas as pd
+            # Para metadata, fila vacia y sumas_pallet vacio
+            valor = _aplicar_transform(config, pd.Series(), datos_sp, {}, total_cajas)
+
+        else:
+            valor = None
+
+        if valor is not None:
+            ws[celda_ref] = valor
 
 
 def _construir_ruta_salida(orden_beta: str) -> Path:

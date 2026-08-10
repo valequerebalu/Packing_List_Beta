@@ -27,6 +27,7 @@ COLUMNAS_PACKING = {
     "FECHA PROCESO": "fecha_proceso",
     "LOTE JULIANO": "lote_juliano",
     "LOTE FUNDO": "lote_fundo",
+    "FUNDO": "fundo",
     "LOTE CLIENTE (OGL)": "lote_cliente_ogl",
     "CODIGO TRAZABILIDAD": "codigo_trazabilidad",
     "CODIGO LUGAR PRODUCCION": "codigo_lugar_produccion",
@@ -41,6 +42,9 @@ COLUMNAS_PACKING = {
     "PRESENTACION": "presentacion",
     "TOTAL CAJAS": "total_cajas",
     "TOTAL KILOS": "total_kilos",
+    "SELLADO": "sellado",
+    "ETIQUETA CLAMSHELL TAPA": "etiqueta_clamshell_tapa",
+    "TIPO_BOLSA": "tipo_bolsa",
 }
 
 COLUMNAS_TERMOGRAFO = {
@@ -70,18 +74,28 @@ COLUMNAS_TERMOGRAFO = {
 # ─── Funciones principales ────────────────────────────────────────────────────
 
 
-def leer_packing_beta(ruta: str) -> pd.DataFrame:
+def leer_packing_beta(ruta: str, header_row: int | None = None) -> pd.DataFrame:
     """
     Lee el Excel de Confirmación de Planta Beta.
-    Encabezado en fila 6 (index 5), datos desde fila 7.
     Elimina filas completamente vacías y normaliza columnas.
+
+    Args:
+        ruta: Ruta al archivo de packing beta.
+        header_row: Fila del encabezado (1-indexado). Si es None, usa auto-detección
+                    buscando 'CULTIVO' o 'ORDEN BETA' en las primeras 20 filas,
+                    con fallback a fila 6.
     """
     ruta = Path(ruta)
     _validar_archivo(ruta)
 
+    if header_row is None:
+        header_row = _detectar_fila_header(ruta, candidatas=["CULTIVO", "ORDEN BETA"])
+
+    header_0 = header_row - 1  # convertir de 1-indexado a 0-indexado
+
     df = pd.read_excel(
         ruta,
-        header=5,  # fila 6 (0-indexado = 5)
+        header=header_0,
         dtype=str,  # todo como texto para evitar conversiones automáticas
         engine="openpyxl",
     )
@@ -161,6 +175,27 @@ def validar_cruce(df_packing: pd.DataFrame, df_termografo: pd.DataFrame) -> dict
 # ─── Helpers privados ─────────────────────────────────────────────────────────
 
 
+def _detectar_fila_header(
+    ruta: Path, candidatas: list[str], max_filas: int = 30
+) -> int:
+    """
+    Busca la fila del encabezado escaneando las primeras N filas del Excel.
+    Retorna el número de fila (1-indexado) donde aparece alguna columna candidata.
+    Si no encuentra, retorna 6 como fallback.
+    """
+    df_raw = pd.read_excel(
+        ruta, header=None, nrows=max_filas, dtype=str, engine="openpyxl"
+    )
+    for idx in range(len(df_raw)):
+        fila_vals = [
+            str(v).strip().upper() for v in df_raw.iloc[idx].values if pd.notna(v)
+        ]
+        for candidata in candidatas:
+            if candidata.upper() in fila_vals:
+                return idx + 1  # convertir a 1-indexado
+    return 6  # fallback
+
+
 def _validar_archivo(ruta: Path):
     """Verifica que el archivo exista y sea un Excel válido."""
     if not ruta.exists():
@@ -192,7 +227,7 @@ def _renombrar_columnas(df: pd.DataFrame, mapeo: dict, fuente: str) -> pd.DataFr
 
     if columnas_faltantes:
         print(
-            f"[WARN] {fuente}: columnas no encontradas en el archivo → "
+            f"[WARN] {fuente}: columnas no encontradas en el archivo -> "
             f"{sorted(columnas_faltantes)}"
         )
 
