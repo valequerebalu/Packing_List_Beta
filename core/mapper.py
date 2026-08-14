@@ -225,6 +225,19 @@ def _aplicar_transform(
     elif tipo == "sum_cajas":
         return str(total_cajas_global) if total_cajas_global else None
 
+    elif tipo == "value_map":
+        valor = _obtener_valor_fuente(
+            transform["field"], transform.get("source", "packing"), fila, datos_sp
+        )
+        if valor is None:
+            return transform.get("default")
+        mapa = transform.get("map", {})
+        valor_lower = valor.strip().lower()
+        for clave, salida in mapa.items():
+            if clave.lower() == valor_lower:
+                return salida
+        return transform.get("default")
+
     return None
 
 

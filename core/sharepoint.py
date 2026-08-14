@@ -45,8 +45,7 @@ def get_sharepoint_crop_dataframe(
     if full_path is None:
         rutas = "\n".join(f"  - {r}" for r in roots)
         raise FileNotFoundError(
-            f"No se encontró '{file_name}'.\n\n"
-            f"Rutas buscadas:\n{rutas}"
+            f"No se encontró '{file_name}'.\n\n" f"Rutas buscadas:\n{rutas}"
         )
 
     logging.debug("SharePoint leyendo: %s", full_path)
@@ -156,12 +155,22 @@ def extraer_datos_sharepoint(df: pd.DataFrame, orden_beta: str | None = None) ->
             resultado[col] = None if texto in ("", "nan", "None", "NaN") else texto
 
     # Aliases backward-compatible (nombres con mayúsculas que usa Tesco)
-    resultado["Cliente"] = _valor_alias(resultado, "cliente", "customer", "customer_name")
+    resultado["Cliente"] = _valor_alias(
+        resultado, "cliente", "customer", "customer_name"
+    )
     resultado["Nave"] = _valor_alias(resultado, "nave", "vessel", "vessel_name")
-    resultado["ETD Programada"] = _valor_alias(resultado, "etd_programada", "etd", "etd_programado")
-    resultado["ETA Programado"] = _valor_alias(resultado, "eta_programado", "eta", "eta_programada")
-    resultado["Puerto Descarga"] = _valor_alias(resultado, "puerto_descarga", "destination_port", "puerto")
-    resultado["Orden Beta"] = _valor_alias(resultado, "orden_beta", "orden", "order_beta")
+    resultado["ETD Programada"] = _valor_alias(
+        resultado, "etd_programada", "etd", "etd_programado"
+    )
+    resultado["ETA Programado"] = _valor_alias(
+        resultado, "eta_programado", "eta", "eta_programada"
+    )
+    resultado["Puerto Descarga"] = _valor_alias(
+        resultado, "puerto_descarga", "destination_port", "puerto"
+    )
+    resultado["Orden Beta"] = _valor_alias(
+        resultado, "orden_beta", "orden", "order_beta"
+    )
     resultado["AWB - Contenedor"] = _valor_alias(
         resultado,
         "awb___contenedor",
@@ -172,6 +181,11 @@ def extraer_datos_sharepoint(df: pd.DataFrame, orden_beta: str | None = None) ->
         "container_number",
         "container_no",
     )
+    resultado["Fecha de Llenado"] = _valor_alias(
+        resultado, "fecha_de_llenado", "fecha_llenado"
+    )
+    resultado["# PO"] = _valor_alias(resultado, "po")
+    resultado["Puerto Carga"] = _valor_alias(resultado, "puerto_carga", "origin_port")
 
     return resultado
 
