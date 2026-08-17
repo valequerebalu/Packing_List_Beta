@@ -11,7 +11,32 @@ from typing import Any
 from db.database import get_supabase
 
 
-def obtener_clientes() -> list[str]:
+def obtener_clientes() -> list[dict]:
+    """Retorna lista de clientes con su configuración."""
+    supabase = get_supabase()
+    try:
+        result = (
+            supabase.table("customers")
+            .select("name, requires_thermograph")
+            .eq("is_active", True)
+            .order("name")
+            .execute()
+        )
+        return result.data
+    except Exception:
+        # Fallback si la columna requires_thermograph no existe aún
+        result = (
+            supabase.table("customers")
+            .select("name")
+            .eq("is_active", True)
+            .order("name")
+            .execute()
+        )
+        return [{"name": row["name"], "requires_thermograph": True} for row in result.data]
+
+
+def obtener_nombres_clientes() -> list[str]:
+    """Retorna solo los nombres de clientes (backward-compatible)."""
     supabase = get_supabase()
     result = (
         supabase.table("customers")
@@ -156,6 +181,18 @@ def obtener_template(cliente: str, cultivo: str) -> dict | None:
         "No hay template activo para cliente='%s' cultivo='%s'", cliente, cultivo
     )
     return None
+
+
+def actualizar_mapping_config(template_id: int, mapping_config: dict) -> dict:
+    """Actualiza el mapping_config de un template en Supabase."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("templates")
+        .update({"mapping_config": mapping_config})
+        .eq("id", template_id)
+        .execute()
+    )
+    return result.data[0]
 
 
 # ─── UTILIDADES ──────────────────────────────────────────────────────────────

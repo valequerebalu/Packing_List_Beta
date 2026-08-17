@@ -16,7 +16,7 @@ from core.excel_reader import (
 )
 from core.excel_writer import generar_excel
 from core.mapper import cruzar_datos, obtener_resumen_cruce
-from core.sharepoint import extraer_datos_sharepoint, get_sharepoint_crop_dataframe
+from core.sharepoint import extraer_datos_sharepoint, extraer_filas_sharepoint, get_sharepoint_crop_dataframe
 from db.repository import obtener_clientes, obtener_cultivos
 
 from gui.theme import (
@@ -46,6 +46,7 @@ class MainWindow:
         self.usuario = usuario
         self.on_logout = on_logout or (lambda: root.destroy())
 
+        self.clientes_config = {}
         self.clientes, self.cultivos = self._cargar_listas()
         self.ruta_packing = tk.StringVar()
         self.ruta_termografo = tk.StringVar()
@@ -67,9 +68,15 @@ class MainWindow:
 
     def _cargar_listas(self) -> tuple[list[str], list[str]]:
         try:
-            clientes = obtener_clientes()
+            clientes_data = obtener_clientes()
             cultivos = obtener_cultivos()
-            if clientes and cultivos:
+            if clientes_data and cultivos:
+                # Guardar info de requires_thermograph por cliente
+                self.clientes_config = {
+                    c["name"]: c.get("requires_thermograph", True)
+                    for c in clientes_data
+                }
+                clientes = [c["name"] for c in clientes_data]
                 return clientes, cultivos
 
             logging.warning(
@@ -265,7 +272,7 @@ class MainWindow:
                 font=ctk.CTkFont(family=FONT_UI, size=11, weight="bold"),
                 text_color=TEXT_HEADING,
             ).pack(anchor="w", pady=(0, 4))
-            ctk.CTkComboBox(
+            combo = ctk.CTkComboBox(
                 col,
                 values=values,
                 variable=var,
@@ -278,6 +285,7 @@ class MainWindow:
                 button_color=PRIMARY,
                 button_hover_color=PRIMARY_HOVER,
                 fg_color=BG_CONTENT,
+                command=self._on_cliente_cambio if label == "Cliente" else None,
             ).pack(fill="x")
 
         orden_block = ctk.CTkFrame(inner, fg_color="transparent")
@@ -333,6 +341,9 @@ class MainWindow:
         self.lbl_termografo_file = self._upload_row(
             row, 1, "Termógrafo", self.ruta_termografo, self._seleccionar_termografo
         )
+        # Guardar referencia al label del título del termógrafo para actualizarlo
+        self.lbl_termografo_title = self.lbl_termografo_file.master.winfo_children()[0]
+        self._actualizar_label_termografo()
 
     def _upload_row(self, parent, col_idx, title, var, cmd):
         card = ctk.CTkFrame(
@@ -524,6 +535,20 @@ class MainWindow:
 
         self._log("Datos limpiados. Sistema listo para nuevos archivos.", "ok")
 
+    def _on_cliente_cambio(self, cliente_seleccionado):
+        """Callback cuando cambia el cliente — actualiza label del termógrafo."""
+        self._actualizar_label_termografo()
+
+    def _actualizar_label_termografo(self):
+        """Actualiza el label del termógrafo indicando si es opcional."""
+        cliente = self.cliente_var.get().strip()
+        requiere = self.clientes_config.get(cliente, True)
+        if hasattr(self, 'lbl_termografo_title') and self.lbl_termografo_title:
+            if requiere:
+                self.lbl_termografo_title.configure(text="Termógrafo")
+            else:
+                self.lbl_termografo_title.configure(text="Termógrafo (Opcional)")
+
     def _log(self, mensaje: str, tipo: str = "info"):
         hora = datetime.now().strftime("%H:%M:%S")
         prefijos = {"ok": "✓", "error": "✗", "info": "→", "warn": "⚠", "muted": "#"}
@@ -555,20 +580,25 @@ class MainWindow:
                     extraer_orden_beta_de_packing,
                 )
 
-                # Intentar obtener input_header_row del template si hay cliente/cultivo seleccionados
+                # Intentar obtener input_header_row e input_sheet_name del template
                 input_header_row = None
+                input_sheet_name = None
                 cliente = self.cliente_var.get()
                 cultivo = self.cultivo_var.get()
                 if cliente and cultivo:
                     try:
                         template = obtener_template(cliente, cultivo)
                         if template:
-                            input_header_row = template["mapping_config"].get("input_header_row")
+                            mc = template["mapping_config"]
+                            input_header_row = mc.get("input_header_row")
+                            input_sheet_name = mc.get("input_sheet_name")
                     except Exception:
                         pass  # Sin template, auto-detección
 
                 self._log("Analizando packing Beta...", "info")
-                self.df_packing = leer_packing_beta(ruta, header_row=input_header_row)
+                self.df_packing = leer_packing_beta(
+                    ruta, header_row=input_header_row, sheet_name=input_sheet_name
+                )
                 ordenes = extraer_orden_beta_de_packing(self.df_packing)
 
                 def ui():
@@ -585,12 +615,19 @@ class MainWindow:
                         self.lbl_ordenes.configure(
                             text="No se detectaron órdenes", text_color="#dc2626"
                         )
-                        self._log("No se detectaron órdenes en el packing", "warn")
+                        cliente = self.cliente_var.get().strip()
+                        cultivo = self.cultivo_var.get().strip()
+                        self._log(
+                            "No se detectaron órdenes en el packing. "
+                            "Verifica que el cliente y cultivo sean correctos "
+                            f"(seleccionado: {cliente} / {cultivo})", "warn"
+                        )
 
                 self.root.after(0, ui)
             except Exception as e:
                 logging.exception("Error al leer packing Beta en segundo plano")
-                self.root.after(0, lambda: self._log(f"Error: {e}", "error"))
+                error_msg = str(e)
+                self.root.after(0, lambda: self._log(f"Error: {error_msg}", "error"))
 
         threading.Thread(target=leer, daemon=True).start()
 
@@ -613,34 +650,45 @@ class MainWindow:
         if not self.ruta_packing.get():
             messagebox.showwarning("Faltante", "Selecciona el archivo de Packing Beta.")
             return
-        if not self.ruta_termografo.get():
+
+        cliente = self.cliente_var.get().strip()
+        requiere_termografo = self.clientes_config.get(cliente, True)
+
+        if requiere_termografo and not self.ruta_termografo.get():
             messagebox.showwarning("Faltante", "Selecciona el archivo de Termógrafo.")
             return
+
         orden = self.orden_beta_var.get().strip()
         if not orden:
             messagebox.showwarning("Faltante", "Ingresa el número de orden Beta.")
             self.entry_orden.focus()
             return
 
-        try:
-            self.df_termografo = leer_termografo(self.ruta_termografo.get(), orden)
-        except ValueError as e:
-            messagebox.showerror("Error", str(e))
-            return
-
-        if self.df_termografo.empty:
-            continuar = messagebox.askyesno(
-                "Termógrafo sin registros",
-                f"No se encontraron los códigos de termógrafo "
-                f"para la orden '{orden}'.\n\n"
-                f"¿Deseas continuar de todas formas?",
-            )
-            if not continuar:
-                self._log("Proceso cancelado — termógrafo sin códigos", "warn")
+        if requiere_termografo:
+            try:
+                self.df_termografo = leer_termografo(self.ruta_termografo.get(), orden)
+            except ValueError as e:
+                messagebox.showerror("Error", str(e))
                 return
-            self._log(
-                "Termógrafo sin códigos — se generará sin la última columna", "warn"
-            )
+
+            if self.df_termografo.empty:
+                continuar = messagebox.askyesno(
+                    "Termógrafo sin registros",
+                    f"No se encontraron los códigos de termógrafo "
+                    f"para la orden '{orden}'.\n\n"
+                    f"¿Deseas continuar de todas formas?",
+                )
+                if not continuar:
+                    self._log("Proceso cancelado — termógrafo sin códigos", "warn")
+                    return
+                self._log(
+                    "Termógrafo sin códigos — se generará sin la última columna", "warn"
+                )
+        else:
+            # Para clientes sin termógrafo (ej: Global Berry), usar DataFrame vacío
+            import pandas as pd
+            self.df_termografo = pd.DataFrame()
+            self._log("Cliente sin termógrafo requerido — omitiendo archivo", "info")
 
         self.btn_generar.configure(state="disabled", text="Generando...")
         self._log(
@@ -668,20 +716,26 @@ class MainWindow:
 
             self._log(f"Plantilla encontrada: {template['name']}", "ok")
 
-            # Leer packing con input_header_row del mapping_config
-            input_header_row = template["mapping_config"].get("input_header_row")
+            # Leer packing con input_header_row e input_sheet_name del mapping_config
+            mc = template["mapping_config"]
+            input_header_row = mc.get("input_header_row")
+            input_sheet_name = mc.get("input_sheet_name")
 
             if self.df_packing is None:
                 self._log("Leyendo packing Beta...", "info")
                 self.df_packing = leer_packing_beta(
-                    self.ruta_packing.get(), header_row=input_header_row
+                    self.ruta_packing.get(),
+                    header_row=input_header_row,
+                    sheet_name=input_sheet_name,
                 )
             else:
-                # Re-leer si el header_row del template difiere del auto-detectado
-                if input_header_row is not None:
-                    self._log("Releyendo packing Beta con header del template...", "info")
+                # Re-leer si el header_row o sheet_name del template difieren
+                if input_header_row is not None or input_sheet_name is not None:
+                    self._log("Releyendo packing Beta con config del template...", "info")
                     self.df_packing = leer_packing_beta(
-                        self.ruta_packing.get(), header_row=input_header_row
+                        self.ruta_packing.get(),
+                        header_row=input_header_row,
+                        sheet_name=input_sheet_name,
                     )
             self._log(f"Packing: {len(self.df_packing)} filas totales", "ok")
 
@@ -702,11 +756,20 @@ class MainWindow:
 
             self._log("Obteniendo datos de SharePoint...", "info")
             datos_sp = {}
+            sharepoint_rows = []
             try:
                 df_sp = get_sharepoint_crop_dataframe(self.cultivo_var.get(), header_row=sp_header_row)
                 if df_sp is not None:
-                    datos_sp = extraer_datos_sharepoint(df_sp, orden)
-                    self._log("SharePoint: datos sincronizados", "ok")
+                    datos_sp = extraer_datos_sharepoint(df_sp, orden, self.cliente_var.get())
+                    sharepoint_rows = extraer_filas_sharepoint(df_sp, orden, self.cliente_var.get())
+                    if sharepoint_rows:
+                        self._log("SharePoint: datos sincronizados (%d filas)" % len(sharepoint_rows), "ok")
+                    else:
+                        self._log(
+                            f"SharePoint: no se encontró la orden '{orden}' "
+                            f"para el cliente '{self.cliente_var.get()}'. "
+                            "Verifica que el cliente seleccionado sea correcto.", "warn"
+                        )
             except FileNotFoundError as e:
                 self._log(str(e), "warn")
                 self._log("Continuando sin datos de SharePoint...", "warn")
@@ -722,7 +785,8 @@ class MainWindow:
                 self.cliente_var.get(),
                 self.cultivo_var.get(),
                 orden,
-                template["mapping_config"],  # ← viene de Supabase
+                template["mapping_config"],
+                sharepoint_rows=sharepoint_rows,
             )
             self._log(f"Cruce completado: {len(filas)} filas", "ok")
 
@@ -732,6 +796,7 @@ class MainWindow:
                 template,
                 orden,
                 datos_sp,
+                self.df_termografo,
             )
             self._log(f"Excel generado: {ruta_salida}", "ok")
 

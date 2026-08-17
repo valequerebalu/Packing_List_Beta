@@ -24,6 +24,7 @@ def cruzar_datos(
     cultivo: str,
     orden_beta: str,
     mapping_config: dict | str,
+    sharepoint_rows: Optional[list[dict]] = None,
 ) -> list[dict]:
     """
     Cruza los tres orígenes de datos y retorna una lista de filas
@@ -52,7 +53,10 @@ def cruzar_datos(
     pallet_ids = []
 
     for _, fila in df_cruzado.iterrows():
-        fila_plantilla = _construir_fila(fila, columnas, datos_sp or {}, sumas_pallet, total_cajas_global)
+        fila_plantilla = _construir_fila(
+            fila, columnas, datos_sp or {}, sumas_pallet, total_cajas_global,
+            df_termografo, sharepoint_rows or [],
+        )
         filas.append(fila_plantilla)
         pallet_ids.append(fila.get("id_pallet"))
 
@@ -121,7 +125,8 @@ def obtener_resumen_cruce(
 
 
 def _construir_fila(
-    fila: pd.Series, columnas: dict, datos_sp: dict, sumas_pallet: dict, total_cajas_global: int
+    fila: pd.Series, columnas: dict, datos_sp: dict, sumas_pallet: dict,
+    total_cajas_global: int, df_termografo: pd.DataFrame, sharepoint_rows: list[dict],
 ) -> dict:
     """
     Construye un diccionario con los valores de la plantilla
@@ -132,7 +137,7 @@ def _construir_fila(
     for col_plantilla, config in columnas.items():
         fuente = config["source"]
 
-        if fuente == "fijo":
+        if fuente in ("fijo", "fixed"):
             valor = config.get("value", "")
 
         elif fuente == "packing":
@@ -147,7 +152,10 @@ def _construir_fila(
             valor = datos_sp.get(config["field"])
 
         elif fuente == "transform":
-            valor = _aplicar_transform(config, fila, datos_sp, sumas_pallet, total_cajas_global)
+            valor = _aplicar_transform(
+                config, fila, datos_sp, sumas_pallet, total_cajas_global,
+                df_termografo, sharepoint_rows,
+            )
 
         else:
             valor = None
@@ -158,18 +166,25 @@ def _construir_fila(
 
 
 def _aplicar_transform(
-    config: dict, fila: pd.Series, datos_sp: dict, sumas_pallet: dict, total_cajas_global: int
+    config: dict, fila: pd.Series, datos_sp: dict, sumas_pallet: dict,
+    total_cajas_global: int, df_termografo: pd.DataFrame = None,
+    sharepoint_rows: list[dict] | None = None,
 ) -> str | None:
     """
     Aplica un transform definido en el mapping_config.
 
     Tipos soportados:
-    - prefix:         Concatena un prefijo al valor de un campo
-    - max_date:       Retorna la fecha mas reciente de multiples campos
-    - conditional:    Evalua condiciones (contains/equals) y retorna un valor
-    - fixed:          Retorna un valor constante
-    - sum_per_pallet: Suma un campo agrupado por id_pallet
-    - sum_cajas:      Suma total de cajas de todo el embarque
+    - prefix:                     Concatena un prefijo al valor de un campo
+    - max_date:                   Retorna la fecha mas reciente de multiples campos
+    - conditional:                Evalua condiciones (contains/equals) y retorna un valor
+    - fixed:                      Retorna un valor constante
+    - sum_per_pallet:             Suma un campo agrupado por id_pallet
+    - sum_cajas:                  Suma total de cajas de todo el embarque
+    - value_map:                  Mapea valores de entrada a valores de salida
+    - multiply:                   Multiplica multiples campos
+    - thermograph_per_pallet:     Busca codigo de termografo por pallet
+    - thermograph_aggregate:      Agrega valores de termografo para la orden
+    - sharepoint_match_packing:   Busca en sharepoint por match con packing
     """
     transform = config["transform"]
     tipo = transform["type"]
@@ -211,6 +226,8 @@ def _aplicar_transform(
                 return cond["result"]
             if "equals" in cond and cond["equals"].lower() == valor_lower:
                 return cond["result"]
+            if "starts_with" in cond and valor_lower.startswith(cond["starts_with"].lower()):
+                return cond["result"]
         return transform.get("default")
 
     elif tipo == "fixed":
@@ -237,6 +254,97 @@ def _aplicar_transform(
             if clave.lower() == valor_lower:
                 return salida
         return transform.get("default")
+
+    elif tipo == "multiply":
+        valores = []
+        for field in transform["fields"]:
+            v = _obtener_valor_fuente(
+                field, transform.get("source", "packing"), fila, datos_sp
+            )
+            if v is None:
+                return None
+            try:
+                valores.append(float(str(v).replace(",", "")))
+            except (ValueError, TypeError):
+                return None
+        resultado = 1
+        for v in valores:
+            resultado *= v
+        return str(resultado) if resultado else None
+
+    elif tipo == "thermograph_per_pallet":
+        pallet_id = _obtener_valor_fuente(
+            transform["field"], transform.get("source", "packing"), fila, datos_sp
+        )
+        if pallet_id is None:
+            return None
+        thermograph_field = transform.get("thermograph_field", "codigo_termografo")
+        if df_termografo is not None and not df_termografo.empty:
+            match = df_termografo[df_termografo["pallet"] == pallet_id]
+            if not match.empty:
+                return _obtener_valor(match.iloc[0], thermograph_field)
+        return None
+
+    elif tipo == "thermograph_aggregate":
+        thermograph_field = transform.get("field", "codigo_termografo")
+        separator = transform.get("separator", "/")
+        if df_termografo is None or df_termografo.empty:
+            return None
+        orden = fila.get("orden_beta")
+        if orden is None:
+            return None
+        orden_norm = _normalizar_orden(orden)
+        match = df_termografo[
+            df_termografo["orden_beta"].fillna("").astype(str).map(_normalizar_orden) == orden_norm
+        ]
+        if match.empty:
+            return None
+        valores = []
+        for _, termo_row in match.iterrows():
+            val = _obtener_valor(termo_row, thermograph_field)
+            if val and val not in valores:
+                valores.append(val)
+        return separator.join(valores) if valores else None
+
+    elif tipo == "sharepoint_match_packing":
+        packing_field = transform["packing_field"]
+        sp_match_field = transform["sharepoint_match_field"]
+        sp_return_field = transform["sharepoint_return_field"]
+        match_patterns = transform.get("match_patterns", {})
+        value_overrides = transform.get("value_overrides", {})
+
+        packing_value = _obtener_valor(fila, packing_field)
+        if packing_value is None:
+            return None
+
+        packing_lower = packing_value.strip().lower()
+
+        # Determinar el valor de busqueda en sharepoint segun match_patterns
+        search_value = None
+        for pack_key, sp_value in match_patterns.items():
+            if pack_key.lower() in packing_lower:
+                search_value = sp_value.lower()
+                break
+
+        if search_value is None:
+            # Sin patron de busqueda, usar el valor directo
+            search_value = packing_lower
+
+        # Buscar en sharepoint_rows la fila que haga match
+        if sharepoint_rows:
+            for sp_row in sharepoint_rows:
+                sp_val = sp_row.get(sp_match_field)
+                if sp_val is None:
+                    continue
+                sp_val_lower = str(sp_val).strip().lower()
+                # Match: el valor de sharepoint contiene el search_value
+                if search_value in sp_val_lower or sp_val_lower in search_value:
+                    # Si hay value_overrides, usarlos
+                    if value_overrides:
+                        return value_overrides.get(sp_val_lower, value_overrides.get(search_value))
+                    return sp_row.get(sp_return_field)
+
+        return None
 
     return None
 

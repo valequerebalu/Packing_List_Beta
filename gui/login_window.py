@@ -184,6 +184,7 @@ class LoginWindow(ctk.CTkToplevel):
             hover_color="#d7e1da",
             text_color=TEXT,
             font=ctk.CTkFont(family=FONT_UI, size=12, weight="bold"),
+            state="disabled",
         )
         self.btn_mock.pack(fill="x", pady=(0, 18))
 

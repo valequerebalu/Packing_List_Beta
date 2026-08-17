@@ -30,6 +30,7 @@ def generar_excel(
     template_data: dict,
     orden_beta: str,
     datos_sp: dict | None = None,
+    df_termografo: pd.DataFrame = None,
 ) -> str:
     """
     Genera el archivo Excel final escribiendo las filas sobre una copia
@@ -75,7 +76,8 @@ def generar_excel(
     # Escribir metadata en celdas especificas (si existe)
     metadata_config = mapping_config.get("metadata", {})
     if metadata_config:
-        _escribir_metadata(ws, metadata_config, filas, columns_config, datos_sp or {})
+        _escribir_metadata(ws, metadata_config, filas, columns_config, datos_sp or {},
+                           df_termografo, orden_beta)
 
     # Leer encabezados de la plantilla para mapear nombre a columna Excel
     header_map = _leer_encabezados(ws, header_row)
@@ -88,6 +90,9 @@ def generar_excel(
     # Reinyectar extLst (data validations x14) que openpyxl descarto
     if extlst_block:
         _inyectar_extlst(ruta_salida, extlst_block, worksheet_attrs)
+
+    # Marcar pivot caches con refreshOnLoad para que Excel los actualice al abrir
+    _marcar_pivot_refresh(ruta_salida)
 
     return str(ruta_salida)
 
@@ -159,6 +164,32 @@ def _inyectar_extlst(xlsx_path: Path, extlst_block: str, worksheet_attrs: str | 
     shutil.move(str(tmp_xlsx), str(xlsx_path))
 
 
+def _marcar_pivot_refresh(xlsx_path: Path):
+    """
+    Agrega refreshOnLoad="1" a todos los pivotCacheDefinition*.xml
+    para que Excel actualice la tabla dinámica al abrir el archivo.
+    """
+    tmp_dir = Path(tempfile.gettempdir())
+    tmp_xlsx = tmp_dir / f"_pivot_refresh_{id(xlsx_path)}.xlsx"
+
+    with zipfile.ZipFile(xlsx_path, "r") as zin, zipfile.ZipFile(
+        tmp_xlsx, "w", zipfile.ZIP_DEFLATED
+    ) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if "pivotCacheDefinition" in item.filename and item.filename.endswith(".xml"):
+                xml = data.decode("utf-8")
+                if "refreshOnLoad" not in xml:
+                    xml = xml.replace(
+                        'createdVersion="',
+                        'refreshOnLoad="1" createdVersion="',
+                    )
+                    data = xml.encode("utf-8")
+            zout.writestr(item, data)
+
+    shutil.move(str(tmp_xlsx), str(xlsx_path))
+
+
 # ─── Helpers privados ─────────────────────────────────────────────────────────
 
 
@@ -177,12 +208,20 @@ def _leer_encabezados(ws, header_row: int) -> dict[str, int]:
     return header_map
 
 
+_MESES_ES = {
+    1: "ene", 2: "feb", 3: "mar", 4: "abr", 5: "may", 6: "jun",
+    7: "jul", 8: "ago", 9: "sep", 10: "oct", 11: "nov", 12: "dic",
+}
+
+
 def _escribir_metadata(
     ws,
     metadata_config: dict,
     filas: list[dict],
     columns_config: dict,
     datos_sp: dict,
+    df_termografo: pd.DataFrame = None,
+    orden_beta: str = None,
 ):
     """
     Escribe valores en celdas especificas definidas en metadata del mapping_config.
@@ -218,16 +257,20 @@ def _escribir_metadata(
         elif fuente == "sharepoint":
             field = config.get("field", "")
             valor = datos_sp.get(field)
+            # Formato de fecha personalizado (dd-mmm)
+            if valor is not None and config.get("format") == "dd-mmm":
+                valor = _formatear_fecha_dd_mmm(valor)
 
         elif fuente == "sum_cajas":
             valor = str(total_cajas) if total_cajas else ""
 
         elif fuente == "transform":
-            # Reutilizar logica de transform de mapper
             from core.mapper import _aplicar_transform
-            import pandas as pd
-            # Para metadata, fila vacia y sumas_pallet vacio
-            valor = _aplicar_transform(config, pd.Series(), datos_sp, {}, total_cajas)
+            fila_mock = pd.Series({"orden_beta": orden_beta}) if orden_beta else pd.Series()
+            valor = _aplicar_transform(
+                config, fila_mock, datos_sp, {}, total_cajas,
+                df_termografo, [],
+            )
 
         else:
             valor = None
@@ -263,8 +306,14 @@ def _escribir_filas(
 
     for fila_datos in filas:
         for nombre_columna, config in columns_config.items():
-            # Determinar columna Excel: explícita en config o por nombre de encabezado
-            col_idx = config.get("column") or header_map.get(nombre_columna)
+            # Determinar columna Excel: explícita en config, por header_map, o por letra (A,B,C...)
+            col_idx = config.get("column")
+            if col_idx is None:
+                # Buscar por nombre de encabezado en la plantilla (ANTES de interpretar como letra)
+                col_idx = header_map.get(nombre_columna)
+            if col_idx is None:
+                # Intentar convertir letra de columna a número (A=1, B=2, ..., Z=26, AA=27, ...)
+                col_idx = _columna_letra_a_numero(nombre_columna)
             if col_idx is None:
                 # Columna no existe en la plantilla — ignorar
                 continue
@@ -275,6 +324,8 @@ def _escribir_filas(
             if nombre_columna in date_columns:
                 celda.value = _convertir_fecha(valor)
                 celda.number_format = "dd/mm/yyyy"
+            elif config.get("format") == "text":
+                celda.value = str(valor) if valor is not None else None
             else:
                 celda.value = _convertir_valor(valor)
 
@@ -299,6 +350,27 @@ def _convertir_valor(valor):
         return int(valor_str)
     except ValueError:
         return valor_str
+
+
+def _formatear_fecha_dd_mmm(valor) -> str | None:
+    """
+    Convierte un valor de fecha a formato 'dd-mmm' en español (ej: '03-ago').
+    """
+    if valor is None:
+        return None
+    if isinstance(valor, datetime):
+        fecha = valor
+    else:
+        valor_str = str(valor).strip()
+        if not valor_str:
+            return None
+        fecha = _convertir_fecha(valor_str)
+        if isinstance(fecha, str):
+            return None
+    mes = _MESES_ES.get(fecha.month)
+    if mes is None:
+        return None
+    return f"{fecha.day:02d}-{mes}"
 
 
 def _convertir_fecha(valor):
@@ -343,3 +415,23 @@ def _convertir_fecha(valor):
         pass
 
     return valor_str
+
+
+def _columna_letra_a_numero(letra: str) -> int | None:
+    """
+    Convierte una letra de columna de Excel a número (1-indexed).
+    A=1, B=2, ..., Z=26, AA=27, AB=28, etc.
+    Retorna None si no es una letra de columna válida.
+    Máximo Excel: XFD = 16384 (3 caracteres).
+    """
+    if not isinstance(letra, str):
+        return None
+    letra = letra.strip().upper()
+    if not letra or not letra.isalpha():
+        return None
+    if len(letra) > 3:  # Máx columnas Excel = XFD (3 chars)
+        return None
+    resultado = 0
+    for c in letra:
+        resultado = resultado * 26 + (ord(c) - ord('A') + 1)
+    return resultado

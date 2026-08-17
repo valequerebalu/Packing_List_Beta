@@ -74,7 +74,11 @@ COLUMNAS_TERMOGRAFO = {
 # ─── Funciones principales ────────────────────────────────────────────────────
 
 
-def leer_packing_beta(ruta: str, header_row: int | None = None) -> pd.DataFrame:
+def leer_packing_beta(
+    ruta: str,
+    header_row: int | None = None,
+    sheet_name: str | None = None,
+) -> pd.DataFrame:
     """
     Lee el Excel de Confirmación de Planta Beta.
     Elimina filas completamente vacías y normaliza columnas.
@@ -84,17 +88,25 @@ def leer_packing_beta(ruta: str, header_row: int | None = None) -> pd.DataFrame:
         header_row: Fila del encabezado (1-indexado). Si es None, usa auto-detección
                     buscando 'CULTIVO' o 'ORDEN BETA' en las primeras 20 filas,
                     con fallback a fila 6.
+        sheet_name: Nombre de la hoja a leer. Si es None, usa la primera hoja.
     """
     ruta = Path(ruta)
     _validar_archivo(ruta)
 
     if header_row is None:
-        header_row = _detectar_fila_header(ruta, candidatas=["CULTIVO", "ORDEN BETA"])
+        header_row = _detectar_fila_header(
+            ruta, candidatas=["CULTIVO", "ORDEN BETA"], sheet_name=sheet_name
+        )
 
     header_0 = header_row - 1  # convertir de 1-indexado a 0-indexado
 
+    # Si sheet_name es None, usar 0 (primera hoja) para evitar que pd.read_excel
+    # retorne un dict de DataFrames cuando el archivo tiene múltiples hojas
+    sheet = sheet_name if sheet_name is not None else 0
+
     df = pd.read_excel(
         ruta,
+        sheet_name=sheet,
         header=header_0,
         dtype=str,  # todo como texto para evitar conversiones automáticas
         engine="openpyxl",
@@ -176,15 +188,19 @@ def validar_cruce(df_packing: pd.DataFrame, df_termografo: pd.DataFrame) -> dict
 
 
 def _detectar_fila_header(
-    ruta: Path, candidatas: list[str], max_filas: int = 30
+    ruta: Path,
+    candidatas: list[str],
+    max_filas: int = 30,
+    sheet_name: str | None = None,
 ) -> int:
     """
     Busca la fila del encabezado escaneando las primeras N filas del Excel.
     Retorna el número de fila (1-indexado) donde aparece alguna columna candidata.
     Si no encuentra, retorna 6 como fallback.
     """
+    sheet = sheet_name if sheet_name is not None else 0
     df_raw = pd.read_excel(
-        ruta, header=None, nrows=max_filas, dtype=str, engine="openpyxl"
+        ruta, sheet_name=sheet, header=None, nrows=max_filas, dtype=str, engine="openpyxl"
     )
     for idx in range(len(df_raw)):
         fila_vals = [

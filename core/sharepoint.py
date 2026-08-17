@@ -122,10 +122,18 @@ def _buscar_rutas_sharepoint() -> list[Path]:
     return unique
 
 
-def extraer_datos_sharepoint(df: pd.DataFrame, orden_beta: str | None = None) -> dict:
+def extraer_datos_sharepoint(
+    df: pd.DataFrame,
+    orden_beta: str | None = None,
+    cliente_seleccionado: str | None = None,
+) -> dict:
     """
     Normaliza una fila de SharePoint y retorna TODOS los campos como dict.
     El mapper puede acceder a cualquier campo por nombre de columna normalizado.
+
+    Args:
+        orden_beta: Orden a buscar (se strip sufijo letra para matching).
+        cliente_seleccionado: Cliente seleccionado en el sistema para validar.
     """
     if df is None or df.empty:
         return {}
@@ -134,11 +142,20 @@ def extraer_datos_sharepoint(df: pd.DataFrame, orden_beta: str | None = None) ->
     normalizado.columns = [_normalizar_columna(c) for c in normalizado.columns]
 
     if orden_beta and "orden_beta" in normalizado.columns:
-        orden = _normalizar_orden(orden_beta)
+        orden_norm, _ = _normalizar_orden_sufijo(orden_beta)
         filtrado = normalizado[
-            normalizado["orden_beta"].astype(str).map(_normalizar_orden) == orden
+            normalizado["orden_beta"].astype(str).map(lambda x: _normalizar_orden_sufijo(x)[0]) == orden_norm
         ]
         if not filtrado.empty:
+            # Validar con cliente si se proporciona
+            if cliente_seleccionado and "cliente" in filtrado.columns:
+                filtrado_validado = filtrado[
+                    filtrado["cliente"].apply(
+                        lambda c: _cliente_sharepoint_match(c, cliente_seleccionado)
+                    )
+                ]
+                if not filtrado_validado.empty:
+                    filtrado = filtrado_validado
             normalizado = filtrado
 
     fila = normalizado.iloc[0]
@@ -190,7 +207,52 @@ def extraer_datos_sharepoint(df: pd.DataFrame, orden_beta: str | None = None) ->
     return resultado
 
 
-# ─── Helpers privados ─────────────────────────────────────────────────────────
+def extraer_filas_sharepoint(
+    df: pd.DataFrame,
+    orden_beta: str | None = None,
+    cliente_seleccionado: str | None = None,
+) -> list[dict]:
+    """
+    Similar a extraer_datos_sharepoint pero retorna TODAS las filas
+    de la orden como lista de dicts.
+    """
+    if df is None or df.empty:
+        return []
+
+    normalizado = df.copy()
+    normalizado.columns = [_normalizar_columna(c) for c in normalizado.columns]
+
+    if orden_beta and "orden_beta" in normalizado.columns:
+        orden_norm, _ = _normalizar_orden_sufijo(orden_beta)
+        filtrado = normalizado[
+            normalizado["orden_beta"].astype(str).map(lambda x: _normalizar_orden_sufijo(x)[0]) == orden_norm
+        ]
+        if not filtrado.empty:
+            # Validar con cliente si se proporciona
+            if cliente_seleccionado and "cliente" in filtrado.columns:
+                filtrado_validado = filtrado[
+                    filtrado["cliente"].apply(
+                        lambda c: _cliente_sharepoint_match(c, cliente_seleccionado)
+                    )
+                ]
+                if not filtrado_validado.empty:
+                    filtrado = filtrado_validado
+            normalizado = filtrado
+
+    resultados = []
+    for _, fila in normalizado.iterrows():
+        resultado = {}
+        for col, val in fila.items():
+            if col.startswith("unnamed"):
+                continue
+            if pd.isna(val):
+                resultado[col] = None
+            else:
+                texto = str(val).strip()
+                resultado[col] = None if texto in ("", "nan", "None", "NaN") else texto
+        resultados.append(resultado)
+
+    return resultados
 
 
 def _normalizar_columna(nombre: object) -> str:
@@ -226,3 +288,39 @@ def _normalizar_orden(valor: str) -> str:
         return re.sub(r"[^A-Z0-9]", "", texto)
     prefijo, numero = partes.groups()
     return f"{prefijo}{int(numero):04d}"
+
+
+def _normalizar_orden_sufijo(valor: str) -> tuple[str, str]:
+    """
+    Normaliza una orden y extrae el sufijo de letra (ej: BAM0046A -> BAM0046, A).
+    Retorna (orden_normalizada, sufijo).
+    """
+    texto = str(valor).strip().upper()
+    partes = re.match(r"^([A-Z]+)-?(\d+)([A-Z])$", texto)
+    if partes:
+        prefijo, numero, sufijo = partes.groups()
+        return f"{prefijo}{int(numero):04d}", sufijo
+    return _normalizar_orden(valor), ""
+
+
+# Aliases de cliente para validación en SharePoint
+_CLIENTE_ALIASES = {
+    "tesco": ["tesco", "westfalia fruit uk", "westfalia irlanda"],
+    "united exports": ["united exports"],
+    "walmart": ["walmart"],
+    "global berry": ["global berry"],
+}
+
+
+def _cliente_sharepoint_match(cliente_sp: str | None, cliente_seleccionado: str) -> bool:
+    """
+    Valida si el cliente de SharePoint coincide con el cliente seleccionado.
+    Usa aliases para TESCO (acepta WESTFALIA FRUIT UK, WESTFALIA IRLANDA).
+    Si no hay cliente en SharePoint, retorna True (sin validación).
+    """
+    if not cliente_sp:
+        return True
+    cliente_seleccionado_lower = cliente_seleccionado.strip().lower()
+    aliases = _CLIENTE_ALIASES.get(cliente_seleccionado_lower, [cliente_seleccionado_lower])
+    cliente_sp_lower = cliente_sp.strip().lower()
+    return any(alias in cliente_sp_lower for alias in aliases)
