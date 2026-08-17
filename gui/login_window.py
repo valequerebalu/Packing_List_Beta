@@ -228,16 +228,22 @@ class LoginWindow(ctk.CTkToplevel):
 
             except Exception as e:
                 logging.exception("Error de conexión durante login")
+                msg = str(e)
+
+                if "Missing" in msg or "API key" in msg or "key" in msg.lower():
+                    detalle = "Credenciales de Supabase inválidas. Verifica el archivo .env."
+                elif "connect" in msg.lower() or "timeout" in msg.lower() or "unreachable" in msg.lower():
+                    detalle = f"No se pudo contactar al servidor.\n\n{msg}\n\nVerifica tu conexión a internet."
+                elif "Name or service" in msg or "DNS" in msg or "getaddrinfo" in msg:
+                    detalle = "No se pudo resolver el dominio. Verifica tu conexión a internet."
+                else:
+                    detalle = f"Error inesperado:\n\n{msg}"
 
                 def error():
-                    messagebox.showerror(
-                        "Error de conexión",
-                        "No se pudo conectar con el servidor. "
-                        "Verifica tu conexión a internet e intenta nuevamente.",
-                    )
+                    messagebox.showerror("Error de conexión", detalle)
                     self.status_var.set("Error de conexión.")
                     self.btn_login.configure(state="normal", text="Ingresar")
-                    self.btn_mock.configure(state="normal")
+                    self.btn_mock.configure(state="disabled")
 
                 self.after(0, error)
 

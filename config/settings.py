@@ -29,8 +29,10 @@ APP_DIR = app_dir()
 
 # ─── Cargar .env ──────────────────────────────────────────────────────────────
 if _frozen():
-    # Compilado: .env está empaquetado dentro del .exe (sys._MEIPASS)
+    # Compilado: buscar .env empaquetado (sys._MEIPASS) o junto al .exe
     env_path = BASE_DIR / ".env"
+    if not env_path.exists():
+        env_path = APP_DIR / ".env"
 else:
     # Desarrollo: .env junto al script
     env_path = APP_DIR / ".env"

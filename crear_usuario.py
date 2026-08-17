@@ -24,9 +24,9 @@ def crear_usuario(username, password, full_name, email, is_admin=False):
 
 if __name__ == "__main__":
     crear_usuario(
-        "ecortijo",
-        "Elydee123!",
-        "Elydee Cortijo",
-        "ecortijo@beta.com",
+        "amendoza",
+        "Ariana456!",
+        "Ariana Mendoza",
+        "amendoza@beta.com",
         is_admin=True,
     )
