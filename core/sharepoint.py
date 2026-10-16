@@ -29,7 +29,7 @@ def get_sharepoint_crop_dataframe(
                     Palta usa 3, Arándano usa 4.
     """
     anio = datetime.now().year
-    file_name = f"Reporte Embarques de Exportaciónes - {crop_name} {anio}.xlsx"
+    file_name = f"Reporte Embarque de Exportaciones - {crop_name} {anio}.xlsx"
 
     roots = _buscar_rutas_sharepoint()
 
@@ -144,7 +144,10 @@ def extraer_datos_sharepoint(
     if orden_beta and "orden_beta" in normalizado.columns:
         orden_norm, _ = _normalizar_orden_sufijo(orden_beta)
         filtrado = normalizado[
-            normalizado["orden_beta"].astype(str).map(lambda x: _normalizar_orden_sufijo(x)[0]) == orden_norm
+            normalizado["orden_beta"]
+            .astype(str)
+            .map(lambda x: _normalizar_orden_sufijo(x)[0])
+            == orden_norm
         ]
         if not filtrado.empty:
             # Validar con cliente si se proporciona
@@ -225,7 +228,10 @@ def extraer_filas_sharepoint(
     if orden_beta and "orden_beta" in normalizado.columns:
         orden_norm, _ = _normalizar_orden_sufijo(orden_beta)
         filtrado = normalizado[
-            normalizado["orden_beta"].astype(str).map(lambda x: _normalizar_orden_sufijo(x)[0]) == orden_norm
+            normalizado["orden_beta"]
+            .astype(str)
+            .map(lambda x: _normalizar_orden_sufijo(x)[0])
+            == orden_norm
         ]
         if not filtrado.empty:
             # Validar con cliente si se proporciona
@@ -312,7 +318,9 @@ _CLIENTE_ALIASES = {
 }
 
 
-def _cliente_sharepoint_match(cliente_sp: str | None, cliente_seleccionado: str) -> bool:
+def _cliente_sharepoint_match(
+    cliente_sp: str | None, cliente_seleccionado: str
+) -> bool:
     """
     Valida si el cliente de SharePoint coincide con el cliente seleccionado.
     Usa aliases para TESCO (acepta WESTFALIA FRUIT UK, WESTFALIA IRLANDA).
@@ -321,6 +329,8 @@ def _cliente_sharepoint_match(cliente_sp: str | None, cliente_seleccionado: str)
     if not cliente_sp:
         return True
     cliente_seleccionado_lower = cliente_seleccionado.strip().lower()
-    aliases = _CLIENTE_ALIASES.get(cliente_seleccionado_lower, [cliente_seleccionado_lower])
+    aliases = _CLIENTE_ALIASES.get(
+        cliente_seleccionado_lower, [cliente_seleccionado_lower]
+    )
     cliente_sp_lower = cliente_sp.strip().lower()
     return any(alias in cliente_sp_lower for alias in aliases)

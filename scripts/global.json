@@ -1,0 +1,137 @@
+{
+    "input_sheet_name": "FORMATO",
+    "sheet_name": "Hoja1",
+    "header_row": 7,
+    "data_start_row": 8,
+    "date_columns": [
+        "FECHA M.P",
+        "FECHA CARGA",
+        "FECHA LLEGADA"
+    ],
+    "columns": {
+        "PROVEEDOR": {
+            "source": "fijo",
+            "value": "BETASA"
+        },
+        "FUNDO": {
+            "source": "packing",
+            "field": "lote_fundo"
+        },
+        "FECHA M.P": {
+            "source": "packing",
+            "field": "fecha_proceso"
+        },
+        "FECHA CARGA": {
+            "source": "sharepoint",
+            "field": "fecha_de_llenado"
+        },
+        "CONTAINER": {
+            "source": "sharepoint",
+            "field": "awb___contenedor"
+        },
+        "INVOICE NUMBER": {
+            "source": "sharepoint",
+            "field": "factura"
+        },
+        "PRESENTACION": {
+            "source": "packing",
+            "field": "presentacion"
+        },
+        "ETIQUETADO": {
+            "source": "fijo",
+            "value": "S/E"
+        },
+        "MARCA": {
+            "source": "fijo",
+            "value": "PROVEEDOR"
+        },
+        "CATEGORIA": {
+            "source": "fijo",
+            "value": "1ª"
+        },
+        "CALIBRE": {
+            "source": "packing",
+            "field": "calibre"
+        },
+        "N° PALLET": {
+            "source": "packing",
+            "field": "id_pallet"
+        },
+        "TRATAMIENTO": {
+            "source": "fijo",
+            "value": "GLOBALG.A.P."
+        },
+        "ORIGEN": {
+            "source": "fijo",
+            "value": "PERÚ"
+        },
+        "FECHA LLEGADA": {
+            "source": "sharepoint",
+            "field": "eta_real"
+        },
+        "VARIEDAD": {
+            "source": "transform",
+            "transform": {
+                "type": "prefix",
+                "prefix": "ARÁNDANOS ",
+                "field": "variedad",
+                "source": "packing"
+            }
+        },
+        "ENVASE": {
+            "source": "transform",
+            "transform": {
+                "type": "conditional",
+                "field": "tipo_caja",
+                "source": "packing",
+                "conditions": [
+                    {
+                        "contains": "carton",
+                        "result": "CAJA CARTÓN"
+                    },
+                    {
+                        "contains": "plastico",
+                        "result": "CAJA PLÁSTICO"
+                    }
+                ],
+                "default": null
+            }
+        },
+        "ALMACÉN REGULADOR": {
+            "source": "transform",
+            "transform": {
+                "type": "conditional",
+                "field": "destino",
+                "source": "sharepoint",
+                "conditions": [
+                    {
+                        "equals": "ESPAÑA",
+                        "result": "PARTIDA ALMACEN"
+                    },
+                    {
+                        "equals": "HOLANDA",
+                        "result": "LBP ALMACEN"
+                    }
+                ],
+                "default": null
+            }
+        },
+        "CAJAS/PALET": {
+            "source": "transform",
+            "transform": {
+                "type": "sum_per_pallet",
+                "field": "total_cajas"
+            }
+        },
+        "CAJAS": {
+            "source": "packing",
+            "field": "total_cajas"
+        },
+        "TIPO PALET": {
+            "source": "fijo",
+            "value": "AMERICANO PERDIDO"
+        }
+    },
+    "sharepoint_header_row": 3,
+    "input_header_row": 6
+}

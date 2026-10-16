@@ -1,0 +1,169 @@
+{
+    "sheet_name": "EXPORTER FILE",
+    "header_row": 1,
+    "data_start_row": 2,
+    "input_header_row": 6,
+    "sharepoint_header_row": 3,
+    "date_columns": [
+        "B",
+        "C",
+        "AG"
+    ],
+    "columns": {
+        "A": {
+            "source": "sharepoint",
+            "field": "nave"
+        },
+        "B": {
+            "source": "sharepoint",
+            "field": "etd_programada"
+        },
+        "C": {
+            "source": "sharepoint",
+            "field": "fecha_embarque"
+        },
+        "D": {
+            "source": "sharepoint",
+            "field": "puerto_carga"
+        },
+        "E": {
+            "source": "fixed",
+            "value": "USTHL"
+        },
+        "F": {
+            "source": "sharepoint",
+            "field": "puerto_descarga"
+        },
+        "G": {
+            "source": "sharepoint",
+            "field": "linea_naviera"
+        },
+        "H": {
+            "source": "fixed",
+            "value": "COMPLEJO AGROINDUSTRIAL BETA S.A."
+        },
+        "I": {
+            "source": "sharepoint",
+            "field": "awb___contenedor"
+        },
+        "J": {
+            "source": "packing",
+            "field": "id_pallet"
+        },
+        "K": {
+            "source": "fixed",
+            "value": null
+        },
+        "L": {
+            "source": "fixed",
+            "value": " FRESH BLUEBERRIES"
+        },
+        "M": {
+            "source": "packing",
+            "field": "variedad"
+        },
+        "N": {
+            "source": "fixed",
+            "value": " FRESH BLUEBERRIES"
+        },
+        "O": {
+            "source": "fixed",
+            "value": null
+        },
+        "P": {
+            "source": "fixed",
+            "value": "WALMART"
+        },
+        "Q": {
+            "source": "packing",
+            "field": "calibre"
+        },
+        "R": {
+            "source": "fixed",
+            "value": null
+        },
+        "S": {
+            "source": "packing",
+            "field": "codigo_lugar_produccion"
+        },
+        "T": {
+            "source": "packing",
+            "field": "codigo_lugar_produccion"
+        },
+        "U": {
+            "source": "fixed",
+            "value": "COMPLEJO AGROINDUSTRIAL BETA S.A."
+        },
+        "V": {
+            "source": "packing",
+            "field": "total_cajas"
+        },
+        "W": {
+            "source": "fixed",
+            "value": null
+        },
+        "X": {
+            "source": "sharepoint",
+            "field": "contenedor"
+        },
+        "Y": {
+            "source": "fixed",
+            "value": "NO"
+        },
+        "Z": {
+            "source": "packing",
+            "field": "codigo_barras"
+        },
+        "AA": {
+            "source": "packing",
+            "field": "presentacion"
+        },
+        "AB": {
+            "source": "sharepoint",
+            "field": "po_walmart"
+        },
+        "AC": {
+            "source": "sharepoint",
+            "field": "item_walmart"
+        },
+        "AD": {
+            "source": "fixed",
+            "value": "Complejo Agroindustrial Beta S.A."
+        },
+        "AE": {
+            "source": "fixed",
+            "value": "NRO. S/N FND. STA MARGARITA PLT PACKING (CARRETERA PANAMERICANA SUR KM 321) SANTIAGO ICA ICA PERU"
+        },
+        "AF": {
+            "source": "sharepoint",
+            "field": "fda"
+        },
+        "AG": {
+            "source": "packing",
+            "field": "fecha_proceso"
+        },
+        "AH": {
+            "source": "fixed",
+            "value": null
+        },
+        "AI": {
+            "source": "fixed",
+            "value": null
+        },
+        "AJ": {
+            "source": "fixed",
+            "value": null
+        },
+        "AK": {
+            "source": "transform",
+            "transform": {
+                "type": "multiply",
+                "fields": [
+                    "peso_caja",
+                    "total_cajas"
+                ]
+            }
+        }
+    },
+    "metadata": {}
+}
