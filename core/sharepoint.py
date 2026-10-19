@@ -6,6 +6,7 @@ import re
 import unicodedata
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import pandas as pd
 
@@ -14,6 +15,7 @@ from config.settings import SHAREPOINT_LOCAL_DIR
 # Nombre de la carpeta del negocio en OneDrive
 _NEGOCIO = "Complejo Agroindustrial Beta S.A"
 _SUBCARPETA = "Intranet - Reporte Exportaciones"
+_SUBCARPETA_PEDIDOS = "Intranet - Cuadro de Pedidos"
 
 
 def get_sharepoint_crop_dataframe(
@@ -28,44 +30,135 @@ def get_sharepoint_crop_dataframe(
         header_row: Fila del encabezado en la hoja 'Base de datos' (0-indexed).
                     Palta usa 3, Arándano usa 4.
     """
-    anio = datetime.now().year
-    file_name = f"Reporte Embarque de Exportaciones - {crop_name} {anio}.xlsx"
 
-    roots = _buscar_rutas_sharepoint()
+    file_name = (
+        f"Reporte Embarque de Exportaciones - "
+        f"{crop_name} {datetime.now().year}.xlsx"
+    )
+    return get_sharepoint_resource_dataframe(
+        {
+            "key": "embarque",
+            "file_name": file_name,
+            "sheet_name": "Base de datos",
+            "header_row": header_row,
+        },
+        crop_name=crop_name,
+    )
 
-    logging.debug("Buscando '%s' en %d rutas posibles", file_name, len(roots))
 
-    full_path = None
-    for root in roots:
-        candidate = root / file_name
-        if candidate.exists():
-            full_path = candidate
-            break
-
-    if full_path is None:
-        rutas = "\n".join(f"  - {r}" for r in roots)
-        raise FileNotFoundError(
-            f"No se encontró '{file_name}'.\n\n" f"Rutas buscadas:\n{rutas}"
+def get_sharepoint_resource_dataframe(
+    resource: dict,
+    crop_name: str,
+) -> pd.DataFrame:
+    """Carga un recurso configurado en templates desde SharePoint sincronizado."""
+    file_name = _resolver_nombre_recurso(resource, crop_name)
+    subfolder = resource.get("subfolder")
+    resource_key = resource.get("key") or resource.get("name")
+    if subfolder is None and str(resource_key).lower() == "pedido":
+        subfolder = f"{_SUBCARPETA_PEDIDOS}\\{crop_name}"
+    elif subfolder:
+        subfolder = str(subfolder).format(
+            crop=crop_name,
+            year=datetime.now().year,
         )
+
+    full_path = _buscar_archivo_sharepoint(file_name, subfolder)
+
+    sheet_name = resource.get("sheet_name", "Base de datos")
+    header_row = resource.get("header_row", 0)
 
     logging.debug("SharePoint leyendo: %s", full_path)
 
     try:
-        df = pd.read_excel(full_path, sheet_name="Base de datos", header=header_row)
-        logging.debug("SharePoint %s cargado — %d filas", crop_name, len(df))
+        df = pd.read_excel(full_path, sheet_name=sheet_name, header=header_row)
+        logging.debug("Recurso SharePoint '%s' cargado — %d filas", file_name, len(df))
         return df
 
     except ValueError as exc:
-        if "Worksheet named 'Base de datos' not found" in str(exc):
+        if f"Worksheet named '{sheet_name}' not found" in str(exc):
             libro = pd.ExcelFile(full_path)
             raise ValueError(
-                f"El archivo '{file_name}' no tiene pestaña 'Base de datos'.\n"
+                f"El archivo '{file_name}' no tiene pestaña '{sheet_name}'.\n"
                 f"Pestañas disponibles: {libro.sheet_names}"
             )
         raise
 
 
-def _buscar_rutas_sharepoint() -> list[Path]:
+def cargar_recursos_sharepoint(
+    resources: list[dict] | dict | None,
+    crop_name: str,
+    orden_beta: str,
+    cliente_seleccionado: str | None = None,
+) -> tuple[dict[str, dict], list[str]]:
+    """
+    Carga y filtra los recursos declarados por una plantilla.
+
+    Retorna:
+        recursos: key -> {"datos": dict, "filas": list[dict]}
+        advertencias: recursos opcionales que no pudieron cargarse
+    """
+    if not resources:
+        return {}, []
+    if isinstance(resources, dict):
+        resources = resources.get("items", resources.get("resources", []))
+    if not isinstance(resources, list):
+        raise ValueError("La configuración 'resources' debe ser una lista JSON.")
+
+    cargados: dict[str, dict] = {}
+    advertencias: list[str] = []
+    for resource in resources:
+        if not isinstance(resource, dict):
+            raise ValueError("Cada recurso de SharePoint debe ser un objeto JSON.")
+        if resource.get("enabled", True) is False:
+            continue
+
+        key = resource.get("key") or resource.get("name") or resource.get("id")
+        if not key:
+            raise ValueError("Cada recurso de SharePoint debe tener 'key' o 'name'.")
+
+        try:
+            df = get_sharepoint_resource_dataframe(resource, crop_name)
+            datos = extraer_datos_sharepoint(df, orden_beta, cliente_seleccionado)
+            filas = extraer_filas_sharepoint(df, orden_beta, cliente_seleccionado)
+            cargados[str(key)] = {"datos": datos, "filas": filas}
+        except (FileNotFoundError, ValueError) as exc:
+            if resource.get("required", True):
+                raise
+            advertencias.append(f"{key}: {exc}")
+
+    return cargados, advertencias
+
+
+def _resolver_nombre_recurso(resource: dict, crop_name: str) -> str:
+    """Resuelve file_name o file_pattern usando cultivo y año actual."""
+    nombre = (
+        resource.get("file_name")
+        or resource.get("file_pattern")
+        or Path(unquote(urlparse(str(resource.get("url", ""))).path)).name
+    )
+    if not nombre:
+        raise ValueError("El recurso de SharePoint requiere 'file_name'.")
+    return str(nombre).format(crop=crop_name, year=datetime.now().year)
+
+
+def _buscar_archivo_sharepoint(
+    file_name: str,
+    subfolder: str | None = None,
+) -> Path:
+    roots = _buscar_rutas_sharepoint(subfolder or _SUBCARPETA)
+
+    for root in roots:
+        candidate = root / file_name
+        if candidate.exists():
+            return candidate
+
+    rutas = "\n".join(f"  - {r}" for r in roots)
+    raise FileNotFoundError(
+        f"No se encontró '{file_name}'.\n\nRutas buscadas:\n{rutas}"
+    )
+
+
+def _buscar_rutas_sharepoint(subfolder: str = _SUBCARPETA) -> list[Path]:
     """
     Escanea el sistema buscando la carpeta de SharePoint del negocio.
     Funciona en cualquier máquina sin configuración previa.
@@ -74,7 +167,10 @@ def _buscar_rutas_sharepoint() -> list[Path]:
 
     # 1. Override explícito vía env var (si se configuró)
     if SHAREPOINT_LOCAL_DIR and SHAREPOINT_LOCAL_DIR.exists():
-        roots.append(SHAREPOINT_LOCAL_DIR)
+        if subfolder == _SUBCARPETA:
+            roots.append(SHAREPOINT_LOCAL_DIR)
+        else:
+            roots.append(SHAREPOINT_LOCAL_DIR / subfolder)
 
     # 2. Escanear discos: OneDrive-* y cualquier carpeta con la subcarpeta del negocio
     for drive_letter in "CDEFGH":
@@ -88,12 +184,12 @@ def _buscar_rutas_sharepoint() -> list[Path]:
                 nombre = carpeta.name.lower()
                 # Patrón OneDrive-*
                 if nombre.startswith("onedrive"):
-                    candidata = carpeta / _NEGOCIO / _SUBCARPETA
+                    candidata = carpeta / _NEGOCIO / subfolder
                     if candidata.exists():
                         roots.append(candidata)
                 else:
                     # Búsqueda profunda: cualquier carpeta con el negocio adentro
-                    candidata = carpeta / _NEGOCIO / _SUBCARPETA
+                    candidata = carpeta / _NEGOCIO / subfolder
                     if candidata.exists():
                         roots.append(candidata)
         except PermissionError:
@@ -102,9 +198,9 @@ def _buscar_rutas_sharepoint() -> list[Path]:
     # 3. Fallbacks en home del usuario
     user_home = Path(os.path.expanduser("~"))
     fallbacks = [
-        user_home / _NEGOCIO / _SUBCARPETA,
-        user_home / "OneDrive" / _NEGOCIO / _SUBCARPETA,
-        user_home / "SharePoint",
+        user_home / _NEGOCIO / subfolder,
+        user_home / "OneDrive" / _NEGOCIO / subfolder,
+        user_home / "SharePoint" / subfolder,
     ]
     for fb in fallbacks:
         if fb.exists():
@@ -188,9 +284,16 @@ def extraer_datos_sharepoint(
     resultado["Puerto Descarga"] = _valor_alias(
         resultado, "puerto_descarga", "destination_port", "puerto"
     )
+    resultado["Puerto Carga"] = _valor_alias(
+        resultado, "puerto_carga", "origin_port", "puerto"
+    )
     resultado["Orden Beta"] = _valor_alias(
         resultado, "orden_beta", "orden", "order_beta"
     )
+    resultado["Aerolínea - Naviera"] = _valor_alias(
+        resultado, "aereolinea_naviera", "naviera", "a_naviera"
+    )
+
     resultado["AWB - Contenedor"] = _valor_alias(
         resultado,
         "awb___contenedor",

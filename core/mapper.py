@@ -25,6 +25,7 @@ def cruzar_datos(
     orden_beta: str,
     mapping_config: dict | str,
     sharepoint_rows: Optional[list[dict]] = None,
+    sharepoint_resources: Optional[dict[str, dict]] = None,
 ) -> list[dict]:
     """
     Cruza los tres orígenes de datos y retorna una lista de filas
@@ -54,8 +55,14 @@ def cruzar_datos(
 
     for _, fila in df_cruzado.iterrows():
         fila_plantilla = _construir_fila(
-            fila, columnas, datos_sp or {}, sumas_pallet, total_cajas_global,
-            df_termografo, sharepoint_rows or [],
+            fila,
+            columnas,
+            datos_sp or {},
+            sumas_pallet,
+            total_cajas_global,
+            df_termografo,
+            sharepoint_rows or [],
+            sharepoint_resources or {},
         )
         filas.append(fila_plantilla)
         pallet_ids.append(fila.get("id_pallet"))
@@ -125,8 +132,14 @@ def obtener_resumen_cruce(
 
 
 def _construir_fila(
-    fila: pd.Series, columnas: dict, datos_sp: dict, sumas_pallet: dict,
-    total_cajas_global: int, df_termografo: pd.DataFrame, sharepoint_rows: list[dict],
+    fila: pd.Series,
+    columnas: dict,
+    datos_sp: dict,
+    sumas_pallet: dict,
+    total_cajas_global: int,
+    df_termografo: pd.DataFrame,
+    sharepoint_rows: list[dict],
+    sharepoint_resources: dict[str, dict],
 ) -> dict:
     """
     Construye un diccionario con los valores de la plantilla
@@ -151,10 +164,20 @@ def _construir_fila(
         elif fuente == "sharepoint":
             valor = datos_sp.get(config["field"])
 
+        elif fuente.startswith("resource:"):
+            recurso = sharepoint_resources.get(fuente.split(":", 1)[1], {})
+            valor = recurso.get("datos", {}).get(config["field"])
+
         elif fuente == "transform":
             valor = _aplicar_transform(
-                config, fila, datos_sp, sumas_pallet, total_cajas_global,
-                df_termografo, sharepoint_rows,
+                config,
+                fila,
+                datos_sp,
+                sumas_pallet,
+                total_cajas_global,
+                df_termografo,
+                sharepoint_rows,
+                sharepoint_resources,
             )
 
         else:
@@ -166,9 +189,14 @@ def _construir_fila(
 
 
 def _aplicar_transform(
-    config: dict, fila: pd.Series, datos_sp: dict, sumas_pallet: dict,
-    total_cajas_global: int, df_termografo: pd.DataFrame = None,
+    config: dict,
+    fila: pd.Series,
+    datos_sp: dict,
+    sumas_pallet: dict,
+    total_cajas_global: int,
+    df_termografo: pd.DataFrame = None,
     sharepoint_rows: list[dict] | None = None,
+    sharepoint_resources: dict[str, dict] | None = None,
 ) -> str | None:
     """
     Aplica un transform definido en el mapping_config.
@@ -181,6 +209,7 @@ def _aplicar_transform(
     - sum_per_pallet:             Suma un campo agrupado por id_pallet
     - sum_cajas:                  Suma total de cajas de todo el embarque
     - value_map:                  Mapea valores de entrada a valores de salida
+    - remove_spaces_hyphens:      Elimina espacios y guiones del valor de entrada
     - multiply:                   Multiplica multiples campos
     - thermograph_per_pallet:     Busca codigo de termografo por pallet
     - thermograph_aggregate:      Agrega valores de termografo para la orden
@@ -191,7 +220,8 @@ def _aplicar_transform(
 
     if tipo == "prefix":
         valor = _obtener_valor_fuente(
-            transform["field"], transform["source"], fila, datos_sp
+            transform["field"], transform["source"], fila, datos_sp,
+            sharepoint_resources or {},
         )
         if valor is not None:
             return transform["prefix"] + valor
@@ -201,7 +231,11 @@ def _aplicar_transform(
         fechas = []
         for field in transform["fields"]:
             valor = _obtener_valor_fuente(
-                field, transform["source"], fila, datos_sp
+                field,
+                transform["source"],
+                fila,
+                datos_sp,
+                sharepoint_resources or {},
             )
             if valor:
                 for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"):
@@ -216,7 +250,11 @@ def _aplicar_transform(
 
     elif tipo == "conditional":
         valor = _obtener_valor_fuente(
-            transform["field"], transform["source"], fila, datos_sp
+            transform["field"],
+            transform["source"],
+            fila,
+            datos_sp,
+            sharepoint_resources or {},
         )
         if valor is None:
             return transform.get("default")
@@ -226,7 +264,9 @@ def _aplicar_transform(
                 return cond["result"]
             if "equals" in cond and cond["equals"].lower() == valor_lower:
                 return cond["result"]
-            if "starts_with" in cond and valor_lower.startswith(cond["starts_with"].lower()):
+            if "starts_with" in cond and valor_lower.startswith(
+                cond["starts_with"].lower()
+            ):
                 return cond["result"]
         return transform.get("default")
 
@@ -244,7 +284,11 @@ def _aplicar_transform(
 
     elif tipo == "value_map":
         valor = _obtener_valor_fuente(
-            transform["field"], transform.get("source", "packing"), fila, datos_sp
+            transform["field"],
+            transform.get("source", "packing"),
+            fila,
+            datos_sp,
+            sharepoint_resources or {},
         )
         if valor is None:
             return transform.get("default")
@@ -255,11 +299,27 @@ def _aplicar_transform(
                 return salida
         return transform.get("default")
 
+    elif tipo == "remove_spaces_hyphens":
+        valor = _obtener_valor_fuente(
+            transform["field"],
+            transform.get("source", "packing"),
+            fila,
+            datos_sp,
+            sharepoint_resources or {},
+        )
+        if valor is None:
+            return transform.get("default")
+        return re.sub(r"[\s-]", "", valor)
+
     elif tipo == "multiply":
         valores = []
         for field in transform["fields"]:
             v = _obtener_valor_fuente(
-                field, transform.get("source", "packing"), fila, datos_sp
+                field,
+                transform.get("source", "packing"),
+                fila,
+                datos_sp,
+                sharepoint_resources or {},
             )
             if v is None:
                 return None
@@ -274,7 +334,11 @@ def _aplicar_transform(
 
     elif tipo == "thermograph_per_pallet":
         pallet_id = _obtener_valor_fuente(
-            transform["field"], transform.get("source", "packing"), fila, datos_sp
+            transform["field"],
+            transform.get("source", "packing"),
+            fila,
+            datos_sp,
+            sharepoint_resources or {},
         )
         if pallet_id is None:
             return None
@@ -295,7 +359,8 @@ def _aplicar_transform(
             return None
         orden_norm = _normalizar_orden(orden)
         match = df_termografo[
-            df_termografo["orden_beta"].fillna("").astype(str).map(_normalizar_orden) == orden_norm
+            df_termografo["orden_beta"].fillna("").astype(str).map(_normalizar_orden)
+            == orden_norm
         ]
         if match.empty:
             return None
@@ -341,22 +406,34 @@ def _aplicar_transform(
                 if search_value in sp_val_lower or sp_val_lower in search_value:
                     # Si hay value_overrides, usarlos
                     if value_overrides:
-                        return value_overrides.get(sp_val_lower, value_overrides.get(search_value))
+                        return value_overrides.get(
+                            sp_val_lower, value_overrides.get(search_value)
+                        )
                     return sp_row.get(sp_return_field)
 
         return None
+
+    elif tipo == "description_uva":
+        return ""
 
     return None
 
 
 def _obtener_valor_fuente(
-    campo: str, fuente: str, fila: pd.Series, datos_sp: dict
+    campo: str,
+    fuente: str,
+    fila: pd.Series,
+    datos_sp: dict,
+    sharepoint_resources: dict[str, dict] | None = None,
 ) -> str | None:
     """Obtiene un valor de cualquier fuente (packing, sharepoint, termografo)."""
     if fuente == "packing":
         return _obtener_valor(fila, campo)
     elif fuente == "sharepoint":
         return datos_sp.get(campo)
+    elif fuente.startswith("resource:"):
+        recurso = (sharepoint_resources or {}).get(fuente.split(":", 1)[1], {})
+        return recurso.get("datos", {}).get(campo)
     elif fuente == "termografo":
         valor = _obtener_valor(fila, campo)
         if valor is None:

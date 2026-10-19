@@ -16,7 +16,12 @@ from core.excel_reader import (
 )
 from core.excel_writer import generar_excel
 from core.mapper import cruzar_datos, obtener_resumen_cruce
-from core.sharepoint import extraer_datos_sharepoint, extraer_filas_sharepoint, get_sharepoint_crop_dataframe
+from core.sharepoint import (
+    cargar_recursos_sharepoint,
+    extraer_datos_sharepoint,
+    extraer_filas_sharepoint,
+    get_sharepoint_crop_dataframe,
+)
 from db.repository import obtener_clientes, obtener_cultivos
 
 from gui.theme import (
@@ -752,24 +757,59 @@ class MainWindow:
             for adv in resumen["advertencias"]:
                 self._log(adv, "warn")
 
-            sp_header_row = template["mapping_config"].get("sharepoint_header_row", 3)
-
             self._log("Obteniendo datos de SharePoint...", "info")
             datos_sp = {}
             sharepoint_rows = []
+            recursos_sp = {}
             try:
-                df_sp = get_sharepoint_crop_dataframe(self.cultivo_var.get(), header_row=sp_header_row)
-                if df_sp is not None:
-                    datos_sp = extraer_datos_sharepoint(df_sp, orden, self.cliente_var.get())
-                    sharepoint_rows = extraer_filas_sharepoint(df_sp, orden, self.cliente_var.get())
-                    if sharepoint_rows:
-                        self._log("SharePoint: datos sincronizados (%d filas)" % len(sharepoint_rows), "ok")
-                    else:
-                        self._log(
-                            f"SharePoint: no se encontró la orden '{orden}' "
-                            f"para el cliente '{self.cliente_var.get()}'. "
-                            "Verifica que el cliente seleccionado sea correcto.", "warn"
+                resources = template.get("resources")
+                if resources:
+                    recursos_sp, advertencias = cargar_recursos_sharepoint(
+                        resources,
+                        self.cultivo_var.get(),
+                        orden,
+                        self.cliente_var.get(),
+                    )
+                    for advertencia in advertencias:
+                        self._log(f"SharePoint: {advertencia}", "warn")
+                    principal = recursos_sp.get("embarque")
+                    if principal is None and recursos_sp:
+                        principal = next(iter(recursos_sp.values()))
+                    if principal:
+                        datos_sp = principal["datos"]
+                        sharepoint_rows = principal["filas"]
+                else:
+                    sp_header_row = template["mapping_config"].get(
+                        "sharepoint_header_row", 3
+                    )
+                    df_sp = get_sharepoint_crop_dataframe(
+                        self.cultivo_var.get(), header_row=sp_header_row
+                    )
+                    if df_sp is not None:
+                        datos_sp = extraer_datos_sharepoint(
+                            df_sp, orden, self.cliente_var.get()
                         )
+                        sharepoint_rows = extraer_filas_sharepoint(
+                            df_sp, orden, self.cliente_var.get()
+                        )
+
+                if sharepoint_rows:
+                    self._log(
+                        "SharePoint: datos sincronizados (%d filas)"
+                        % len(sharepoint_rows),
+                        "ok",
+                    )
+                elif resources:
+                    self._log(
+                        f"SharePoint: no se encontró la orden '{orden}' "
+                        f"para el cliente '{self.cliente_var.get()}'.",
+                        "warn",
+                    )
+                elif df_sp is not None:
+                    self._log(
+                        "SharePoint: no se encontraron filas para la orden.",
+                        "warn",
+                    )
             except FileNotFoundError as e:
                 self._log(str(e), "warn")
                 self._log("Continuando sin datos de SharePoint...", "warn")
@@ -787,6 +827,7 @@ class MainWindow:
                 orden,
                 template["mapping_config"],
                 sharepoint_rows=sharepoint_rows,
+                sharepoint_resources=recursos_sp,
             )
             self._log(f"Cruce completado: {len(filas)} filas", "ok")
 

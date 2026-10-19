@@ -32,7 +32,9 @@ def obtener_clientes() -> list[dict]:
             .order("name")
             .execute()
         )
-        return [{"name": row["name"], "requires_thermograph": True} for row in result.data]
+        return [
+            {"name": row["name"], "requires_thermograph": True} for row in result.data
+        ]
 
 
 def obtener_nombres_clientes() -> list[str]:
@@ -161,7 +163,10 @@ def obtener_template(cliente: str, cultivo: str) -> dict | None:
 
     result = (
         supabase.table("templates")
-        .select("id, name, file_path, mapping_config, " "customers(name), crops(name)")
+        .select(
+            "id, name, file_path, mapping_config, resources, "
+            "customers(name), crops(name)"
+        )
         .eq("status", "active")
         .execute()
     )

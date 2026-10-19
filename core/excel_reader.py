@@ -70,6 +70,13 @@ COLUMNAS_TERMOGRAFO = {
     "TERMOGRAFO PRUEBA": "termografo_prueba",
 }
 
+COLUMNAS_CUADRO_PEDIDOS = {
+    "ORDEN BETA": "orden_beta",
+    "CLIENTE GENERAL": "cliente",
+    "CULTIVO": "cultivo",
+    "COLOR": "color",
+    "VARIEDAD": "variedad",
+}
 
 # ─── Funciones principales ────────────────────────────────────────────────────
 
@@ -200,7 +207,12 @@ def _detectar_fila_header(
     """
     sheet = sheet_name if sheet_name is not None else 0
     df_raw = pd.read_excel(
-        ruta, sheet_name=sheet, header=None, nrows=max_filas, dtype=str, engine="openpyxl"
+        ruta,
+        sheet_name=sheet,
+        header=None,
+        nrows=max_filas,
+        dtype=str,
+        engine="openpyxl",
     )
     for idx in range(len(df_raw)):
         fila_vals = [
