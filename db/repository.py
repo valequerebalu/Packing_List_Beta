@@ -179,7 +179,20 @@ def obtener_template(cliente: str, cultivo: str) -> dict | None:
             if isinstance(mc, str):
                 mc = json.loads(mc)
             row["mapping_config"] = mc
-            logging.debug("Template encontrado: id=%s name=%s", row["id"], row["name"])
+
+            resources = row.get("resources")
+            for _ in range(2):
+                if not isinstance(resources, str):
+                    break
+                resources = json.loads(resources)
+            row["resources"] = resources
+
+            logging.debug(
+                "Template encontrado: id=%s name=%s resources_type=%s",
+                row["id"],
+                row["name"],
+                type(resources).__name__,
+            )
             return row
 
     logging.warning(

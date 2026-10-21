@@ -770,6 +770,14 @@ class MainWindow:
                         orden,
                         self.cliente_var.get(),
                     )
+                    self._log(
+                        "SharePoint: recursos cargados: "
+                        + ", ".join(
+                            f"{key} ({len(value['filas'])} filas)"
+                            for key, value in recursos_sp.items()
+                        ),
+                        "ok" if recursos_sp else "warn",
+                    )
                     for advertencia in advertencias:
                         self._log(f"SharePoint: {advertencia}", "warn")
                     principal = recursos_sp.get("embarque")

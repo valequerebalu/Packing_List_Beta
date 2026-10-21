@@ -38,7 +38,7 @@
             "transform": {
                 "type": "conditional",
                 "field": "puerto_carga",
-                "source": "sharepoint",
+                "source": "resource:embarque",
                 "conditions": [
                     {
                         "equals": "PAITA",
@@ -61,7 +61,7 @@
             "transform": {
                 "type": "conditional",
                 "field": "puerto_descarga",
-                "source": "sharepoint",
+                "source": "resource:embarque",
                 "conditions": [
                     {
                         "equals": "ALGECIRAS",
@@ -96,11 +96,11 @@
             }
         },
         "ETD": {
-            "source": "sharepoint",
+            "source": "resource:embarque",
             "field": "etd_programada"
         },
         "ETA Harbour": {
-            "source": "sharepoint",
+            "source": "resource:embarque",
             "field": "eta_real"
         },
         "ATA/CTA ": {
@@ -108,19 +108,19 @@
             "value": ""
         },
         "Departure Vessel": {
-            "source": "sharepoint",
+            "source": "resource:embarque",
             "field": "nave"
         },
         "Arrival Vessel": {
-            "source": "sharepoint",
+            "source": "resource:embarque",
             "field": "nave_de_arribo"
         },
         "Carrier": {
-            "source": "sharepoint",
+            "source": "resource:embarque",
             "field": "aereolinea_naviera"
         },
         "B/L number": {
-            "source": "sharepoint",
+            "source": "resource:embarque",
             "field": "reserva"
         },
         "Container": {
@@ -128,7 +128,7 @@
             "transform": {
                 "type": "remove_spaces_hyphens",
                 "field": "awb___contenedor",
-                "source": "sharepoint",
+                "source": "resource:embarque",
                 "default": null
             }
         },
@@ -139,17 +139,81 @@
         "Product": {
             "source": "transform",
             "transform": {
-                "type": "conditional",
-                "field": "producto",
-                "source": "sharepoint",
-                "conditions": [
+                "type": "concat",
+                "separator": " ",
+                "parts": [
                     {
-                        "equals": "PAPAYA MARADOL",
-                        "result": "PAPAYA"
+                        "value": "GRAPES"
                     },
                     {
-                        "equals": "MANGO KEITT",
-                        "result": "MANGO"
+                        "type": "conditional",
+                        "field": "color",
+                        "source": "resource:pedido",
+                        "conditions": [
+                            {
+                                "equals": "BICOLOR",
+                                "result": "BICOLOR"
+                            }
+                        ],
+                        "else": {
+                            "type": "conditional",
+                            "field": "variedad",
+                            "source": "packing",
+                            "conditions": [
+                                {
+                                    "equals": "ALLISON",
+                                    "result": "RED"
+                                },
+                                {
+                                    "equals": "THOMPSON",
+                                    "result": "WHITE"
+                                },
+                                {
+                                    "equals": "SWEET GLOBE",
+                                    "result": "WHITE"
+                                },
+                                {
+                                    "equals": "IVORY",
+                                    "result": "WHITE"
+                                },
+                                {
+                                    "equals": "SWEET CELEBRATION",
+                                    "result": "RED"
+                                },
+                                {
+                                    "equals": "JACK'S SALUTE",
+                                    "result": "RED"
+                                },
+                                {
+                                    "equals": "TIMCO",
+                                    "result": "RED"
+                                },
+                                {
+                                    "equals": "TIMPSON",
+                                    "result": "WHITE"
+                                }
+                            ],
+                            "default": null
+                        },
+                        "default": null
+                    },
+                    {
+                        "value": "SEEDLESS"
+                    },
+                    {
+                        "type": "conditional",
+                        "field": "etiqueta",
+                        "source": "resource:embarque",
+                        "conditions": [
+                            {
+                                "equals": "-",
+                                "result": "UNLABELED"
+                            }
+                        ],
+                        "default": "LABELED"
+                    },
+                    {
+                        "value": "10X500G"
                     }
                 ],
                 "default": null
@@ -160,7 +224,7 @@
             "transform": {
                 "type": "conditional",
                 "field": "variedad",
-                "source": "sharepoint",
+                "source": "packing",
                 "conditions": [
                     {
                         "equals": "ALLISON",
@@ -199,7 +263,7 @@
             }
         },
         "Trademark": {
-            "source": "sharepoint",
+            "source": "packing",
             "field": "variedad"
         },
         "Mutant/Breeding": {
@@ -211,8 +275,8 @@
             "value": ""
         },
         "Size": {
-            "source": "fijo",
-            "value": ""
+            "source": "packing",
+            "field": "calibre"
         },
         "Count": {
             "source": "fijo",
@@ -236,27 +300,46 @@
                 "type": "thermograph_per_pallet",
                 "field": "id_pallet",
                 "source": "packing",
-                "thermograph_field": "codigo_termografo"
+                "thermograph_field": "X"
             }
         },
         "Outer Pack": {
             "source": "transform",
             "transform": {
                 "type": "conditional",
-                "field": "tipo_caja",
-                "source": "sharepoint",
+                "field": "tipo_de_caja",
+                "source": "resource:embarque",
                 "conditions": [
                     {
-                        "equals": "CAJA CARTON 5KG 40x60x100 - NEGRO",
+                        "equals": "Caja negra 5kg",
                         "result": "BLACK GENERIC"
+                    },
+                    {
+                        "contains": "KRAFT",
+                        "result": "KRAFT"
                     }
                 ],
-                "default": "¿?"
+                "default": "GENERIC"
             }
         },
         "Inner Pack": {
-            "source": "fijo",
-            "value": "preguntar"
+            "source": "transform",
+            "transform": {
+                "type": "conditional",
+                "field": "etiqueta",
+                "source": "resource:embarque",
+                "conditions": [
+                    {
+                        "equals": "Tafel",
+                        "result": "REWE LABEL"
+                    },
+                    {
+                        "equals": "-",
+                        "result": "BLANCO"
+                    }
+                ],
+                "default": "N/A"
+            }
         },
         "Harvest Date": {
             "source": "packing",
@@ -265,10 +348,19 @@
         "L-Code / Pack Date": {
             "source": "transform",
             "transform": {
-                "type": "date_format",
-                "field": "fecha_proceso",
-                "source": "packing",
-                "format": "dd/MM/yyyy"
+                "type": "concat",
+                "separator": "-",
+                "parts": [
+                    {
+                        "value": "L"
+                    },
+                    {
+                        "type": "iso_week_day_code",
+                        "source": "packing",
+                        "field": "fecha_proceso",
+                        "default": null
+                    }
+                ]
             }
         },
         "Packhouse": {

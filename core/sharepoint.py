@@ -15,7 +15,7 @@ from config.settings import SHAREPOINT_LOCAL_DIR
 # Nombre de la carpeta del negocio en OneDrive
 _NEGOCIO = "Complejo Agroindustrial Beta S.A"
 _SUBCARPETA = "Intranet - Reporte Exportaciones"
-_SUBCARPETA_PEDIDOS = "Intranet - Cuadro de Pedidos"
+_SUBCARPETA_PEDIDOS = "Intranet - Cuadros de Pedidos"
 
 
 def get_sharepoint_crop_dataframe(
@@ -55,7 +55,7 @@ def get_sharepoint_resource_dataframe(
     subfolder = resource.get("subfolder")
     resource_key = resource.get("key") or resource.get("name")
     if subfolder is None and str(resource_key).lower() == "pedido":
-        subfolder = f"{_SUBCARPETA_PEDIDOS}\\{crop_name}"
+        subfolder = f"{_SUBCARPETA_PEDIDOS}\\{crop_name.upper()}"
     elif subfolder:
         subfolder = str(subfolder).format(
             crop=crop_name,
@@ -71,7 +71,21 @@ def get_sharepoint_resource_dataframe(
 
     try:
         df = pd.read_excel(full_path, sheet_name=sheet_name, header=header_row)
-        logging.debug("Recurso SharePoint '%s' cargado — %d filas", file_name, len(df))
+        logging.info(
+            "Recurso SharePoint '%s': hoja=%s header_row=%s columnas=%s filas=%d",
+            file_name,
+            sheet_name,
+            header_row,
+            list(df.columns),
+            len(df),
+        )
+        columnas_normalizadas = {_normalizar_columna(col) for col in df.columns}
+        if "orden_beta" not in columnas_normalizadas:
+            raise ValueError(
+                f"El archivo '{file_name}' no tiene la columna de orden Beta "
+                f"después de leer header_row={header_row}. "
+                "Verifica que header_row use índice base cero."
+            )
         return df
 
     except ValueError as exc:
@@ -115,12 +129,20 @@ def cargar_recursos_sharepoint(
         key = resource.get("key") or resource.get("name") or resource.get("id")
         if not key:
             raise ValueError("Cada recurso de SharePoint debe tener 'key' o 'name'.")
+        key = str(key).strip().lower()
 
         try:
             df = get_sharepoint_resource_dataframe(resource, crop_name)
             datos = extraer_datos_sharepoint(df, orden_beta, cliente_seleccionado)
             filas = extraer_filas_sharepoint(df, orden_beta, cliente_seleccionado)
-            cargados[str(key)] = {"datos": datos, "filas": filas}
+            logging.info(
+                "Recurso SharePoint '%s': columnas=%s filas_orden=%d datos=%d",
+                key,
+                list(df.columns),
+                len(filas),
+                len(datos),
+            )
+            cargados[key] = {"datos": datos, "filas": filas}
         except (FileNotFoundError, ValueError) as exc:
             if resource.get("required", True):
                 raise
@@ -245,17 +267,25 @@ def extraer_datos_sharepoint(
             .map(lambda x: _normalizar_orden_sufijo(x)[0])
             == orden_norm
         ]
-        if not filtrado.empty:
-            # Validar con cliente si se proporciona
-            if cliente_seleccionado and "cliente" in filtrado.columns:
-                filtrado_validado = filtrado[
-                    filtrado["cliente"].apply(
-                        lambda c: _cliente_sharepoint_match(c, cliente_seleccionado)
-                    )
-                ]
-                if not filtrado_validado.empty:
-                    filtrado = filtrado_validado
-            normalizado = filtrado
+        if filtrado.empty:
+            raise ValueError(
+                f"No se encontró la orden '{orden_beta}' en el recurso SharePoint."
+            )
+        # Validar con cliente si se proporciona
+        if cliente_seleccionado and "cliente" in filtrado.columns:
+            filtrado_validado = filtrado[
+                filtrado["cliente"].apply(
+                    lambda c: _cliente_sharepoint_match(c, cliente_seleccionado)
+                )
+            ]
+            if not filtrado_validado.empty:
+                filtrado = filtrado_validado
+        normalizado = filtrado
+    elif orden_beta:
+        raise ValueError(
+            "El recurso SharePoint no contiene la columna normalizada "
+            "'orden_beta'. Verifica el encabezado del archivo."
+        )
 
     fila = normalizado.iloc[0]
 
@@ -290,9 +320,15 @@ def extraer_datos_sharepoint(
     resultado["Orden Beta"] = _valor_alias(
         resultado, "orden_beta", "orden", "order_beta"
     )
-    resultado["Aerolínea - Naviera"] = _valor_alias(
-        resultado, "aereolinea_naviera", "naviera", "a_naviera"
+    aerolinea_naviera = _valor_alias(
+        resultado,
+        "aereolinea_naviera",
+        "aerolinea___naviera",
+        "naviera",
+        "a_naviera",
     )
+    resultado["aereolinea_naviera"] = aerolinea_naviera
+    resultado["Aerolínea - Naviera"] = aerolinea_naviera
 
     resultado["AWB - Contenedor"] = _valor_alias(
         resultado,
@@ -309,6 +345,8 @@ def extraer_datos_sharepoint(
     )
     resultado["# PO"] = _valor_alias(resultado, "po")
     resultado["Puerto Carga"] = _valor_alias(resultado, "puerto_carga", "origin_port")
+    resultado["Tipo de Caja"] = _valor_alias(resultado, "tipo_caja")
+    resultado["Etiqueta"] = _valor_alias(resultado, "etiqueta")
 
     return resultado
 
@@ -336,17 +374,25 @@ def extraer_filas_sharepoint(
             .map(lambda x: _normalizar_orden_sufijo(x)[0])
             == orden_norm
         ]
-        if not filtrado.empty:
-            # Validar con cliente si se proporciona
-            if cliente_seleccionado and "cliente" in filtrado.columns:
-                filtrado_validado = filtrado[
-                    filtrado["cliente"].apply(
-                        lambda c: _cliente_sharepoint_match(c, cliente_seleccionado)
-                    )
-                ]
-                if not filtrado_validado.empty:
-                    filtrado = filtrado_validado
-            normalizado = filtrado
+        if filtrado.empty:
+            raise ValueError(
+                f"No se encontró la orden '{orden_beta}' en el recurso SharePoint."
+            )
+        # Validar con cliente si se proporciona
+        if cliente_seleccionado and "cliente" in filtrado.columns:
+            filtrado_validado = filtrado[
+                filtrado["cliente"].apply(
+                    lambda c: _cliente_sharepoint_match(c, cliente_seleccionado)
+                )
+            ]
+            if not filtrado_validado.empty:
+                filtrado = filtrado_validado
+        normalizado = filtrado
+    elif orden_beta:
+        raise ValueError(
+            "El recurso SharePoint no contiene la columna normalizada "
+            "'orden_beta'. Verifica el encabezado del archivo."
+        )
 
     resultados = []
     for _, fila in normalizado.iterrows():

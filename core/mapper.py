@@ -12,7 +12,7 @@ la tabla templates en Supabase.
 import pandas as pd
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 
@@ -165,7 +165,8 @@ def _construir_fila(
             valor = datos_sp.get(config["field"])
 
         elif fuente.startswith("resource:"):
-            recurso = sharepoint_resources.get(fuente.split(":", 1)[1], {})
+            recurso_key = fuente.split(":", 1)[1].strip().lower()
+            recurso = sharepoint_resources.get(recurso_key, {})
             valor = recurso.get("datos", {}).get(config["field"])
 
         elif fuente == "transform":
@@ -210,6 +211,8 @@ def _aplicar_transform(
     - sum_cajas:                  Suma total de cajas de todo el embarque
     - value_map:                  Mapea valores de entrada a valores de salida
     - remove_spaces_hyphens:      Elimina espacios y guiones del valor de entrada
+    - concat:                     Concatena partes fijas y valores condicionales
+    - iso_week_day_code:          Retorna semana ISO y dia ISO como SS DD
     - multiply:                   Multiplica multiples campos
     - thermograph_per_pallet:     Busca codigo de termografo por pallet
     - thermograph_aggregate:      Agrega valores de termografo para la orden
@@ -249,26 +252,12 @@ def _aplicar_transform(
         return None
 
     elif tipo == "conditional":
-        valor = _obtener_valor_fuente(
-            transform["field"],
-            transform["source"],
+        return _evaluar_condicional(
+            transform,
             fila,
             datos_sp,
             sharepoint_resources or {},
         )
-        if valor is None:
-            return transform.get("default")
-        valor_lower = valor.lower()
-        for cond in transform.get("conditions", []):
-            if "contains" in cond and cond["contains"].lower() in valor_lower:
-                return cond["result"]
-            if "equals" in cond and cond["equals"].lower() == valor_lower:
-                return cond["result"]
-            if "starts_with" in cond and valor_lower.startswith(
-                cond["starts_with"].lower()
-            ):
-                return cond["result"]
-        return transform.get("default")
 
     elif tipo == "fixed":
         return transform.get("value")
@@ -310,6 +299,53 @@ def _aplicar_transform(
         if valor is None:
             return transform.get("default")
         return re.sub(r"[\s-]", "", valor)
+
+    elif tipo == "concat":
+        partes = []
+        for parte in transform.get("parts", []):
+            if "value" in parte:
+                valor = parte["value"]
+            elif "type" in parte:
+                valor = _aplicar_transform(
+                    {"transform": parte},
+                    fila,
+                    datos_sp,
+                    sumas_pallet,
+                    total_cajas_global,
+                    df_termografo,
+                    sharepoint_rows,
+                    sharepoint_resources or {},
+                )
+            else:
+                valor = _obtener_valor_fuente(
+                    parte["field"],
+                    parte["source"],
+                    fila,
+                    datos_sp,
+                    sharepoint_resources or {},
+                )
+
+            if valor is not None and str(valor).strip():
+                partes.append(str(valor).strip())
+
+        return transform.get("separator", " ").join(partes) or transform.get(
+            "default"
+        )
+
+    elif tipo == "iso_week_day_code":
+        valor = _obtener_valor_fuente(
+            transform["field"],
+            transform.get("source", "packing"),
+            fila,
+            datos_sp,
+            sharepoint_resources or {},
+        )
+        fecha = _parsear_fecha_transform(valor, transform.get("formats"))
+        if fecha is None:
+            return transform.get("default")
+
+        calendario = fecha.isocalendar()
+        return f"{calendario.week:02d}{calendario.weekday:02d}"
 
     elif tipo == "multiply":
         valores = []
@@ -432,7 +468,8 @@ def _obtener_valor_fuente(
     elif fuente == "sharepoint":
         return datos_sp.get(campo)
     elif fuente.startswith("resource:"):
-        recurso = (sharepoint_resources or {}).get(fuente.split(":", 1)[1], {})
+        recurso_key = fuente.split(":", 1)[1].strip().lower()
+        recurso = (sharepoint_resources or {}).get(recurso_key, {})
         return recurso.get("datos", {}).get(campo)
     elif fuente == "termografo":
         valor = _obtener_valor(fila, campo)
@@ -440,6 +477,77 @@ def _obtener_valor_fuente(
             valor = _obtener_valor(fila, f"{campo}_termo")
         return valor
     return None
+
+
+def _evaluar_condicional(
+    config: dict,
+    fila: pd.Series,
+    datos_sp: dict,
+    sharepoint_resources: dict[str, dict],
+) -> str | None:
+    """Evalúa una condición declarativa contra cualquiera de las fuentes."""
+    valor = _obtener_valor_fuente(
+        config["field"],
+        config["source"],
+        fila,
+        datos_sp,
+        sharepoint_resources,
+    )
+    if valor is None:
+        return config.get("default")
+
+    valor_lower = valor.strip().lower()
+    for cond in config.get("conditions", []):
+        if "contains" in cond and cond["contains"].lower() in valor_lower:
+            return cond["result"]
+        if "equals" in cond and cond["equals"].lower() == valor_lower:
+            return cond["result"]
+        if "starts_with" in cond and valor_lower.startswith(
+            cond["starts_with"].lower()
+        ):
+            return cond["result"]
+
+    else_config = config.get("else")
+    if isinstance(else_config, dict):
+        return _evaluar_condicional(
+            else_config,
+            fila,
+            datos_sp,
+            sharepoint_resources,
+        )
+    return config.get("default")
+
+
+def _parsear_fecha_transform(
+    valor: object,
+    formatos: list[str] | None = None,
+) -> date | None:
+    """Convierte fechas de entrada del mapping a una fecha calendario."""
+    if valor is None or pd.isna(valor):
+        return None
+    if isinstance(valor, datetime):
+        return valor.date()
+    if isinstance(valor, date):
+        return valor
+
+    texto = str(valor).strip()
+    if not texto or texto.lower() in ("nan", "none", "nat"):
+        return None
+
+    formatos_intento = formatos or [
+        "%d/%m/%Y",
+        "%d-%m-%Y",
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M:%S",
+    ]
+    for formato in formatos_intento:
+        try:
+            return datetime.strptime(texto, formato).date()
+        except ValueError:
+            continue
+
+    fecha = pd.to_datetime(texto, errors="coerce", dayfirst=True)
+    return fecha.date() if pd.notna(fecha) else None
 
 
 def _int_seguro(valor) -> int:
