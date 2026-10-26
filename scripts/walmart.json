@@ -1,4 +1,5 @@
 {
+    "input_sheet_name": "FORMATO",
     "sheet_name": "EXPORTER FILE",
     "header_row": 1,
     "data_start_row": 2,
@@ -20,7 +21,7 @@
         },
         "C": {
             "source": "sharepoint",
-            "field": "fecha_embarque"
+            "field": "eta_programado"
         },
         "D": {
             "source": "sharepoint",
@@ -35,8 +36,31 @@
             "field": "puerto_descarga"
         },
         "G": {
-            "source": "sharepoint",
-            "field": "linea_naviera"
+            "source": "transform",
+            "transform": {
+                "type": "conditional",
+                "field": "aerolinea_naviera",
+                "source": "resource:embarque",
+                "conditions": [
+                    {
+                        "equals": "ZIM",
+                        "result": "ZIM INTEGRATED SHIPPING SERVICES LTD"
+                    },
+                    {
+                        "equals": "SEABOARD",
+                        "result": "SEABOARD MARINE LTD"
+                    },
+                    {
+                        "equals": "MSC",
+                        "result": "MSC MEDITERRANEAN SHIPPING COMPANY"
+                    },
+                    {
+                        "equals": "ONE",
+                        "result": "OCEAN NETWORK EXPRESS (PERU) S.A.C."
+                    }
+                ],
+                "default": "GENERIC"
+            }
         },
         "H": {
             "source": "fixed",
@@ -44,7 +68,7 @@
         },
         "I": {
             "source": "sharepoint",
-            "field": "awb___contenedor"
+            "field": "reserva"
         },
         "J": {
             "source": "packing",
@@ -104,15 +128,15 @@
         },
         "X": {
             "source": "sharepoint",
-            "field": "contenedor"
+            "field": "awb___contenedor"
         },
         "Y": {
             "source": "fixed",
             "value": "NO"
         },
         "Z": {
-            "source": "packing",
-            "field": "codigo_barras"
+            "source": "fijo",
+            "value": "13001632"
         },
         "AA": {
             "source": "packing",
@@ -120,11 +144,11 @@
         },
         "AB": {
             "source": "sharepoint",
-            "field": "po_walmart"
+            "field": "po"
         },
         "AC": {
-            "source": "sharepoint",
-            "field": "item_walmart"
+            "source": "fijo",
+            "value": "576475582"
         },
         "AD": {
             "source": "fixed",
@@ -135,8 +159,8 @@
             "value": "NRO. S/N FND. STA MARGARITA PLT PACKING (CARRETERA PANAMERICANA SUR KM 321) SANTIAGO ICA ICA PERU"
         },
         "AF": {
-            "source": "sharepoint",
-            "field": "fda"
+            "source": "fijo",
+            "value": "16339536468"
         },
         "AG": {
             "source": "packing",

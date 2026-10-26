@@ -1,0 +1,300 @@
+{
+    "sheet_name": "Packing List Template",
+    "header_row": 14,
+    "data_start_row": 15,
+    "input_header_row": 6,
+    "sharepoint_header_row": 3,
+    "input_sheet_name": "FORMATO",
+    "metadata": {
+        "C3": {
+            "source": "fijo",
+            "value": "Complejo Agroindustrial Beta"
+        },
+        "C4": {
+            "source": "fijo",
+            "value": "Complejo Agroindustrial Beta"
+        },
+        "C5": {
+            "source": "sharepoint",
+            "field": "factura"
+        },
+        "C6": {
+            "source": "sharepoint",
+            "field": "guide_number"
+        },
+        "C7": {
+            "source": "sharepoint",
+            "field": "senasa_seal"
+        },
+        "C8": {
+            "source": "sharepoint",
+            "field": "custom_seal"
+        },
+        "C9": {
+            "source": "transform",
+            "transform": {
+                "type": "thermograph_aggregate",
+                "field": "codigo_termografo",
+                "separator": "/"
+            }
+        },
+        "C10": {
+            "source": "transform",
+            "transform": {
+                "type": "thermograph_aggregate",
+                "field": "pallet",
+                "separator": "/"
+            }
+        },
+        "C11": {
+            "source": "fijo",
+            "value": ""
+        },
+        "C12": {
+            "source": "fijo",
+            "value": ""
+        },
+        "M3": {
+            "source": "sharepoint",
+            "field": "#_po"
+        },
+        "M4": {
+            "source": "fijo",
+            "value": "United Exports"
+        },
+        "M5": {
+            "source": "sum_cajas"
+        },
+        "M6": {
+            "source": "sharepoint",
+            "field": "fecha_de_llenado",
+            "format": "dd-mmm"
+        },
+        "M7": {
+            "source": "sharepoint",
+            "field": "nave"
+        },
+        "M8": {
+            "source": "sharepoint",
+            "field": "awb___contenedor"
+        },
+        "M9": {
+            "source": "sharepoint",
+            "field": "puerto_carga"
+        },
+        "M10": {
+            "source": "sharepoint",
+            "field": "puerto_descarga"
+        },
+        "M11": {
+            "source": "sharepoint",
+            "field": "eta_real",
+            "format": "dd-mmm"
+        },
+        "M12": {
+            "source": "sharepoint",
+            "field": "etd_programada",
+            "format": "dd-mmm"
+        }
+    },
+    "columns": {
+        "Farm Lot": {
+            "source": "packing",
+            "field": "lote_fundo"
+        },
+        "First Production Date": {
+            "source": "packing",
+            "field": "fecha_cosecha"
+        },
+        "Format": {
+            "source": "transform",
+            "transform": {
+                "type": "conditional",
+                "field": "presentacion",
+                "source": "packing",
+                "conditions": [
+                    {
+                        "contains": "3.5",
+                        "result": "Bulk 3.5g"
+                    },
+                    {
+                        "contains": "8x18",
+                        "result": "8x18oz BK"
+                    },
+                    {
+                        "contains": "11",
+                        "result": "12x11oz"
+                    },
+                    {
+                        "contains": "9.8",
+                        "result": "12x9.8oz"
+                    },
+                    {
+                        "contains": "12x18",
+                        "result": "12x18oz"
+                    },
+                    {
+                        "contains": "8x200",
+                        "result": "8x200g"
+                    },
+                    {
+                        "contains": "12x1",
+                        "result": "12x1pint"
+                    },
+                    {
+                        "contains": "12x16",
+                        "result": "12x16oz"
+                    },
+                    {
+                        "contains": "4.4",
+                        "result": "12x4.4oz"
+                    },
+                    {
+                        "contains": "6",
+                        "result": "12x6oz"
+                    }
+                ],
+                "default": "Bulk 3.5g"
+            }
+        },
+        "Variety": {
+            "source": "transform",
+            "transform": {
+                "type": "value_map",
+                "field": "variedad",
+                "source": "packing",
+                "map": {
+                    "EB 9-2": "09-02 Magica"
+                },
+                "default": null
+            }
+        },
+        "Pallet number": {
+            "source": "packing",
+            "field": "id_pallet"
+        },
+        "Brand": {
+            "source": "transform",
+            "transform": {
+                "type": "conditional",
+                "field": "etiqueta_clamshell_tapa",
+                "source": "packing",
+                "conditions": [
+                    {
+                        "equals": "S/E",
+                        "result": "No Label"
+                    },
+                    {
+                        "contains": "organic",
+                        "result": "OZblu Organic"
+                    },
+                    {
+                        "contains": "ozblu",
+                        "result": "OZblu"
+                    },
+                    {
+                        "contains": "big bold",
+                        "result": "Big Bold"
+                    },
+                    {
+                        "contains": "heb",
+                        "result": "HEB"
+                    },
+                    {
+                        "contains": "china gold",
+                        "result": "OZblu China Gold Jumbo"
+                    },
+                    {
+                        "contains": "china",
+                        "result": "OZblu China"
+                    },
+                    {
+                        "contains": "jumbo",
+                        "result": "OZblu Jumbo"
+                    }
+                ],
+                "default": "No Label"
+            }
+        },
+        "BLANK": {
+            "source": "fijo",
+            "value": ""
+        },
+        "Pallet Base": {
+            "source": "transform",
+            "transform": {
+                "type": "conditional",
+                "field": "tipo_pallet",
+                "source": "packing",
+                "conditions": [
+                    {
+                        "starts_with": "19",
+                        "result": "Wood"
+                    },
+                    {
+                        "starts_with": "16",
+                        "result": "CHEP"
+                    }
+                ],
+                "default": "CHEP"
+            }
+        },
+        "Size": {
+            "source": "transform",
+            "transform": {
+                "type": "value_map",
+                "field": "calibre",
+                "source": "packing",
+                "map": {
+                    "14+": "14mm",
+                    "12+": "12mm",
+                    "18+": "18mm",
+                    "19+": "19mm"
+                },
+                "default": null
+            }
+        },
+        "Class": {
+            "source": "fijo",
+            "value": "1"
+        },
+        "Inventory Code": {
+            "source": "transform",
+            "transform": {
+                "type": "conditional",
+                "field": "presentacion",
+                "source": "packing",
+                "conditions": [
+                    {
+                        "contains": "3.5",
+                        "result": "BK (Bulk)"
+                    }
+                ],
+                "default": "CS (Clamshell)"
+            }
+        },
+        "Shipped via": {
+            "source": "fijo",
+            "value": "Sea Freight"
+        },
+        "Season": {
+            "source": "fijo",
+            "value": "2026 Blueberries PE"
+        },
+        "Cartons": {
+            "source": "packing",
+            "field": "total_cajas"
+        },
+        "Farm": {
+            "source": "packing",
+            "field": "fundo"
+        },
+        "Target Market": {
+            "source": "packing",
+            "field": "pais_destino"
+        }
+    },
+    "date_columns": [
+        "First Production Date"
+    ]
+}

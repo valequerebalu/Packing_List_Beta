@@ -50,8 +50,20 @@
             "value": "1ª"
         },
         "CALIBRE": {
-            "source": "packing",
-            "field": "calibre"
+            "source": "transform",
+            "transform": {
+                "type": "value_map",
+                "field": "calibre",
+                "source": "packing",
+                "map": {
+                    "14+": "14mm",
+                    "12+": "12mm",
+                    "18+": "18mm",
+                    "19+": "19mm",
+                    "20+": "20mm"
+                },
+                "default": null
+            }
         },
         "N° PALLET": {
             "source": "packing",
@@ -87,6 +99,10 @@
                 "conditions": [
                     {
                         "contains": "carton",
+                        "result": "CAJA CARTÓN"
+                    },
+                    {
+                        "contains": "CART",
                         "result": "CAJA CARTÓN"
                     },
                     {

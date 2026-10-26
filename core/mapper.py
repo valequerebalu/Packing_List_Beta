@@ -214,7 +214,7 @@ def _aplicar_transform(
     - concat:                     Concatena partes fijas y valores condicionales
     - iso_week_day_code:          Retorna semana ISO y dia ISO como SS DD
     - multiply:                   Multiplica multiples campos
-    - thermograph_per_pallet:     Busca codigo de termografo por pallet
+    - thermograph_per_pallet:     Busca termografo por pallet y retorna su valor
     - thermograph_aggregate:      Agrega valores de termografo para la orden
     - sharepoint_match_packing:   Busca en sharepoint por match con packing
     """
@@ -382,6 +382,8 @@ def _aplicar_transform(
         if df_termografo is not None and not df_termografo.empty:
             match = df_termografo[df_termografo["pallet"] == pallet_id]
             if not match.empty:
+                if "value" in transform:
+                    return transform["value"]
                 return _obtener_valor(match.iloc[0], thermograph_field)
         return None
 

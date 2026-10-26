@@ -290,7 +290,11 @@ class MainWindow:
                 button_color=PRIMARY,
                 button_hover_color=PRIMARY_HOVER,
                 fg_color=BG_CONTENT,
-                command=self._on_cliente_cambio if label == "Cliente" else None,
+                command=(
+                    self._on_configuracion_cambio
+                    if label in ("Cliente", "Cultivo")
+                    else None
+                ),
             ).pack(fill="x")
 
         orden_block = ctk.CTkFrame(inner, fg_color="transparent")
@@ -540,9 +544,11 @@ class MainWindow:
 
         self._log("Datos limpiados. Sistema listo para nuevos archivos.", "ok")
 
-    def _on_cliente_cambio(self, cliente_seleccionado):
-        """Callback cuando cambia el cliente — actualiza label del termógrafo."""
+    def _on_configuracion_cambio(self, valor_seleccionado):
+        """Recarga el packing cuando cambia la plantilla seleccionada."""
         self._actualizar_label_termografo()
+        if self.ruta_packing.get():
+            self._leer_packing_en_hilo(self.ruta_packing.get())
 
     def _actualizar_label_termografo(self):
         """Actualiza el label del termógrafo indicando si es opcional."""
@@ -598,9 +604,22 @@ class MainWindow:
                             input_header_row = mc.get("input_header_row")
                             input_sheet_name = mc.get("input_sheet_name")
                     except Exception:
-                        pass  # Sin template, auto-detección
+                        logging.exception(
+                            "No se pudo obtener la plantilla para detectar la hoja "
+                            "del packing"
+                        )
+                        self._log(
+                            "No se pudo cargar la configuración de la plantilla; "
+                            "se usará autodetección.",
+                            "warn",
+                        )
 
-                self._log("Analizando packing Beta...", "info")
+                self._log(
+                    "Analizando packing Beta en hoja "
+                    f"'{input_sheet_name or 'primera hoja'}' "
+                    f"(encabezado: {input_header_row or 'auto'}).",
+                    "info",
+                )
                 self.df_packing = leer_packing_beta(
                     ruta, header_row=input_header_row, sheet_name=input_sheet_name
                 )

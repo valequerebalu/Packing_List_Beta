@@ -300,7 +300,7 @@
                 "type": "thermograph_per_pallet",
                 "field": "id_pallet",
                 "source": "packing",
-                "thermograph_field": "X"
+                "value": "X"
             }
         },
         "Outer Pack": {
