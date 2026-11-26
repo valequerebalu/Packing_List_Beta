@@ -29,7 +29,7 @@ class LoginWindow(ctk.CTkToplevel):
         self.parent = parent
         self.on_success = on_success
         self.status_var = ctk.StringVar(value="Ingresa tus credenciales.")
-        self.title("Beta Packing List - Login")
+        self.title("Exportaciones Packing List - Login")
         self.geometry(f"{self.WIDTH}x{self.HEIGHT}")
         self.minsize(self.WIDTH, self.HEIGHT)
         self.maxsize(self.WIDTH, self.HEIGHT)
@@ -93,7 +93,7 @@ class LoginWindow(ctk.CTkToplevel):
         text_box.grid(row=0, column=1, sticky="w", padx=(14, 0))
         ctk.CTkLabel(
             text_box,
-            text="Beta Packing List",
+            text="Exportaciones Packing List",
             font=ctk.CTkFont(family=FONT_UI, size=20, weight="bold"),
             text_color=TEXT,
         ).pack(anchor="w")
@@ -231,8 +231,14 @@ class LoginWindow(ctk.CTkToplevel):
                 msg = str(e)
 
                 if "Missing" in msg or "API key" in msg or "key" in msg.lower():
-                    detalle = "Credenciales de Supabase inválidas. Verifica el archivo .env."
-                elif "connect" in msg.lower() or "timeout" in msg.lower() or "unreachable" in msg.lower():
+                    detalle = (
+                        "Credenciales de Supabase inválidas. Verifica el archivo .env."
+                    )
+                elif (
+                    "connect" in msg.lower()
+                    or "timeout" in msg.lower()
+                    or "unreachable" in msg.lower()
+                ):
                     detalle = f"No se pudo contactar al servidor.\n\n{msg}\n\nVerifica tu conexión a internet."
                 elif "Name or service" in msg or "DNS" in msg or "getaddrinfo" in msg:
                     detalle = "No se pudo resolver el dominio. Verifica tu conexión a internet."

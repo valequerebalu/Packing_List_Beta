@@ -1,4 +1,5 @@
 """Diagnostico de conexion a Supabase. Ejecutar en la maquina con problemas."""
+
 import sys
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ if getattr(sys, "frozen", False):
     print(f"[INFO] Ejecutable congelado")
     print(f"[INFO] Directorio exe: {Path(sys.executable).parent}")
     print(f"[INFO] MEIPASS: {meipass}")
-    print(f"[INFO] .env en exe dir: {env_path} (existe: {env_path.exists()})}")
+    print(f"[INFO] .env en exe dir: {env_path} (existe: {env_path.exists()})")
     env_path2 = meipass / ".env"
     print(f"[INFO] .env en MEIPASS: {env_path2} (existe: {env_path2.exists()})")
 else:
@@ -21,6 +22,7 @@ else:
 # Cargar .env manualmente
 if env_path.exists():
     from dotenv import load_dotenv
+
     load_dotenv(env_path)
     print(f"[OK] .env cargado")
 else:
@@ -33,6 +35,7 @@ print(f"[INFO] SUPABASE_KEY: {key[:20]}..." if key else "[INFO] SUPABASE_KEY: No
 
 # Test 1: DNS
 import socket
+
 try:
     host = url.replace("https://", "").replace("http://", "").split("/")[0]
     print(f"\n--- Test DNS: {host} ---")
@@ -44,6 +47,7 @@ except Exception as e:
 # Test 2: HTTP
 try:
     import httpx
+
     print(f"\n--- Test HTTP ---")
     r = httpx.get(url + "/rest/v1/", timeout=10)
     print(f"[OK] HTTP status: {r.status_code}")
@@ -54,6 +58,7 @@ except Exception as e:
 try:
     print(f"\n--- Test Supabase client ---")
     from supabase import create_client
+
     client = create_client(url, key)
     result = client.table("users").select("username").limit(1).execute()
     print(f"[OK] Supabase conecta. Usuarios: {result.data}")
